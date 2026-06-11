@@ -4,18 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>पसल व्यवस्थापन - Shop Management System</title>
-<!-- Google Apps Script URL - change this to your deployed URL -->
+<!-- ═══════════════════════════════════════════════════════════
+     GOOGLE SHEETS WEB APP URL  ← PASTE YOUR URL HERE
+     Steps: script.google.com → Deploy → Web App → Copy URL
+     ═══════════════════════════════════════════════════════════ -->
 <script>
-  window.GSHEET_URL = "https://script.google.com/macros/s/YOUR_APPS_SCRIPT_ID/exec";
+  window.GS_URL = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec";
+  //              ↑ Replace with your actual Web App URL
 </script>
 <!-- ZXing barcode scanner -->
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
-<script>
-  // ── Google Sheets Live URL ──────────────────────────────────────────
-  // Paste your Apps Script Web App URL here OR set it in Settings page
-  window.GS_LIVE_URL = "";
-  // ───────────────────────────────────────────────────────────────────
-</script>
 <style>
 :root{
   --primary:#1a56db;--primary-dark:#1e40af;--primary-light:#dbeafe;
@@ -688,7 +686,7 @@ tr:hover td{background:var(--g50);}
             <div class="field mb12"><label>Apps Script Web App URL</label><input id="gs-live-url" placeholder="https://script.google.com/macros/s/.../exec"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
               <button class="btn btn-success" onclick="gsLiveSaveURL()">💾 Save &amp; Test</button>
-              <button class="btn btn-primary btn-sm" onclick="gsLivePullAll()">🔄 Pull All Data</button>
+              <button class="btn btn-primary btn-sm" onclick="gsPullAll()">🔄 Pull All Data</button>
               <button class="btn btn-outline btn-sm" onclick="showGsLiveGuide()">❓ Setup Guide</button>
             </div>
             <div id="gs-live-status" style="font-size:12px;margin-top:6px;"></div>
@@ -945,135 +943,117 @@ function setupDateSync(adId, bsId) {
   adEl.addEventListener('input', sync);
 }
 
-// ===================== DATA LAYER (Supabase + localStorage) =====================
-// localStorage is always used as a fast local cache.
-// When Supabase is enabled, all writes also sync to cloud so any browser/device sees live data.
+// ===================== DATA LAYER =====================
+// localStorage = instant local cache (works offline)
+// Google Sheets = live database across all browsers/devices
 
-// ===================== DATA LAYER (Google Sheets Live + localStorage cache) =====================
-// localStorage = instant local cache (works offline too)
-// Google Sheets API = source of truth across all devices
+function getGsUrl() {
+  return localStorage.getItem('sms2_gs_url') || window.GS_URL || '';
+}
 
 const DB = {
   get(k, d=[])  { try { const v=localStorage.getItem('sms2_'+k); return v!==null?JSON.parse(v):d; } catch(e){return d;} },
   obj(k, d={})  { try { const v=localStorage.getItem('sms2_'+k); return v!==null?JSON.parse(v):d; } catch(e){return d;} },
-  // Write locally AND push to Google Sheets
   set(k, v) {
     localStorage.setItem('sms2_'+k, JSON.stringify(v));
-    gsLivePush(k, v);
+    gsPush(k, v);  // live push to Google Sheets
   }
 };
 
-function getGsLiveURL() {
-  return localStorage.getItem('sms2_gs_live_url') || window.GS_LIVE_URL || '';
+// ── Push one key to Google Sheets (fire-and-forget POST) ──
+function gsPush(key, value) {
+  const url = getGsUrl(); if (!url || url.includes('YOUR_SCRIPT')) return;
+  const body = JSON.stringify({ action: 'set', key, value });
+  fetch(url, { method:'POST', body })
+    .then(r => r.json())
+    .then(d => { if (d.status !== 'ok') console.warn('GS push error:', d); })
+    .catch(() => {}); // silent fail — local data is safe
 }
 
-// Push one key→value to Google Sheets (fire-and-forget)
-function gsLivePush(key, value) {
-  const url = getGsLiveURL(); if (!url) return;
-  fetch(url, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'set', key, value })
-  }).catch(() => {});
-}
-
-// Pull ALL data from Google Sheets and write to localStorage
-async function gsLivePullAll() {
-  const url = getGsLiveURL();
-  if (!url) {
-    showSyncBanner('⚠️ No Google Sheets URL set. Go to Settings → Live Data.', 3000); return false;
+// ── Pull ALL data from Google Sheets → overwrite localStorage ──
+async function gsPullAll() {
+  const url = getGsUrl();
+  if (!url || url.includes('YOUR_SCRIPT')) {
+    showSyncBanner('⚠️ Set your Web App URL in Settings → Live Database', 4000); return false;
   }
-  showSyncBanner('⏳ Pulling data from Google Sheets...');
+  showSyncBanner('⏳ Pulling latest data from Google Sheets...');
   try {
-    const res = await fetch(url + '?action=getAll&t=' + Date.now());
+    const res = await fetch(url + '?action=getAll&cb=' + Date.now());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    if (data && data.store) {
-      Object.keys(data.store).forEach(k => {
-        localStorage.setItem('sms2_' + k, JSON.stringify(data.store[k]));
-      });
-      showSyncBanner('✅ Synced from Google Sheets!', 2500);
-      refreshAllDropdowns(); renderDashboard();
-      return true;
-    }
-    showSyncBanner('☁️ Sheet empty — using local data', 2500); return false;
+    if (data.status !== 'ok') throw new Error(data.message || 'Unknown error');
+    const store = data.store || {};
+    let count = 0;
+    Object.keys(store).forEach(k => {
+      localStorage.setItem('sms2_' + k, JSON.stringify(store[k]));
+      count++;
+    });
+    showSyncBanner('✅ Synced ' + count + ' tables from Google Sheets!', 3000);
+    gsLiveUpdateBadge(true);
+    return true;
   } catch(e) {
-    showSyncBanner('❌ Sync failed: ' + e.message, 3000); return false;
+    showSyncBanner('❌ Sync failed: ' + e.message + ' — using local data', 4000);
+    console.error('gsPullAll error:', e);
+    return false;
   }
 }
 
+// ── Sync banner ──
 function showSyncBanner(msg, autoHide=0) {
   let b = document.getElementById('sync-banner');
   if (!b) {
     b = document.createElement('div'); b.id = 'sync-banner';
-    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a56db;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.15);transition:all .3s;';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1e40af;color:#fff;text-align:center;padding:9px 16px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.2);';
     document.body.appendChild(b);
   }
   b.textContent = msg; b.style.display = 'block';
-  if (autoHide) setTimeout(() => { b.style.display='none'; }, autoHide);
+  if (autoHide) setTimeout(() => { b.style.display = 'none'; }, autoHide);
 }
 
-// ===================== GOOGLE SHEETS LIVE SETTINGS =====================
+// ── Settings helpers ──
 function gsLiveSaveURL() {
-  const url = document.getElementById('gs-live-url').value.trim();
-  if (!url) { alert('Paste your Apps Script URL'); return; }
-  localStorage.setItem('sms2_gs_live_url', url);
-  window.GS_LIVE_URL = url;
+  const url = (document.getElementById('gs-live-url')?.value || '').trim();
+  if (!url) { alert('Paste your Apps Script Web App URL first'); return; }
+  localStorage.setItem('sms2_gs_url', url);
+  window.GS_URL = url;
   const statusEl = document.getElementById('gs-live-status');
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--warning);">⏳ Testing connection...</span>';
-  // Test by pulling data
-  fetch(url + '?action=getAll&t=' + Date.now())
+  // Test connection
+  fetch(url + '?action=ping&cb=' + Date.now())
     .then(r => r.json())
     .then(d => {
       gsLiveUpdateBadge(true);
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✅ Connected! Google Sheets is live.</span>';
-      // Pull data if sheet has data
-      if (d && d.store && Object.keys(d.store).length > 0) {
-        Object.keys(d.store).forEach(k => localStorage.setItem('sms2_'+k, JSON.stringify(d.store[k])));
-        showSyncBanner('✅ Data pulled from Google Sheets!', 2500);
-        refreshAllDropdowns(); renderDashboard();
-      }
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✅ Connected! Sheet: <a href="'+d.url+'" target="_blank" style="color:var(--success);">Open Google Sheet →</a></span>';
+      gsPullAll(); // pull any existing data
     })
     .catch(e => {
       gsLiveUpdateBadge(false);
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">❌ Failed: ' + e.message + '. Check URL and deployment.</span>';
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">❌ Failed: '+e.message+' — Check URL & deployment (set access to Anyone)</span>';
     });
 }
 function gsLiveUpdateBadge(ok) {
-  const b = document.getElementById('gs-live-badge');
-  if (!b) return;
-  b.textContent = ok ? 'Connected ✅' : 'Not Connected';
+  const b = document.getElementById('gs-live-badge'); if (!b) return;
+  b.textContent = ok ? '🟢 Connected' : '🔴 Not Connected';
   b.className = 'badge ' + (ok ? 'bs' : 'bd');
   const ind = document.getElementById('sync-indicator');
-  if (ind) ind.style.display = ok ? 'block' : 'none';
-}
-function showGsLiveGuide() {
-  alert(`Google Sheets Live Setup Guide:
-
-1. Open script.google.com → New Project
-2. Paste the new Code.gs (download from the app)
-3. Deploy → New Deployment → Web App
-   • Execute as: Me
-   • Who has access: Anyone
-4. Copy Web App URL
-5. Paste it in Settings → Live Data → Save & Test
-
-That's it! Every sale/purchase/product instantly saves
-to Google Sheets. Open the app on any device and click
-"Pull All Data" to get the latest data.`);
+  if (ind) ind.style.display = ok ? 'flex' : 'none';
 }
 function loadGsLiveSettings() {
-  const url = getGsLiveURL();
-  const el = document.getElementById('gs-live-url');
-  if (el) el.value = url;
-  if (url) gsLiveUpdateBadge(true);
+  const saved = localStorage.getItem('sms2_gs_url') || '';
+  if (saved) { window.GS_URL = saved; }
+  const el = document.getElementById('gs-live-url'); if (el) el.value = window.GS_URL || '';
+  gsLiveUpdateBadge(!!(window.GS_URL && !window.GS_URL.includes('YOUR_SCRIPT')));
 }
+function showGsLiveGuide() {
+  alert("Google Sheets Live Setup Guide:\n\n1. Go to script.google.com → New Project\n2. Paste the Code.gs file content\n3. Run setupSpreadsheet() once (allow permissions)\n4. Deploy → New Deployment → Web App\n   • Execute as: Me\n   • Who has access: Anyone\n5. Copy the Web App URL\n6. Paste it here and click Save & Test\n\nThe sheet and all tabs are auto-created!\nData syncs live across all browsers/devices.");
+}
+
 
 // ===================== AUTH =====================
 async function doLoginAsync() {
   const u = document.getElementById('lu').value;
   const p = document.getElementById('lp').value;
-  const gsUrl = getGsLiveURL();
+  const gsUrl = getGsUrl();
   // If Google Sheets URL is set, pull latest creds from cloud first
   if (gsUrl) {
     try {
@@ -1088,7 +1068,7 @@ async function doLoginAsync() {
   if (u === cr.u && p === cr.p) {
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
-    if (gsUrl) await gsLivePullAll();
+    if (gsUrl) await gsPullAll();
     initApp();
   } else {
     alert('Invalid credentials / गलत प्रमाण-पत्र!');
@@ -1132,7 +1112,7 @@ function initApp() {
   });
   ['pm-conv','pm-buy','pm-sell'].forEach(id => document.getElementById(id)?.addEventListener('input', updateConvPreview));
   // Show live indicator if GS URL already saved
-  if (getGsLiveURL()) gsLiveUpdateBadge(true);
+  if (getGsUrl()) gsLiveUpdateBadge(true);
 }
 
 function showPage(name) {
@@ -1938,9 +1918,8 @@ function loadShopSettings(){
   document.getElementById('sh-phone').value=s.phone||'';
   document.getElementById('sh-pan').value=s.pan||'';
   document.getElementById('sh-low').value=s.lowStock||5;
-  const override=localStorage.getItem('sms2_gs-override')||'';
-  const goEl=document.getElementById('gs-override'); if(goEl) goEl.value=override;
-  const gsd=document.getElementById('gs-url-display'); if(gsd) gsd.textContent=window.GSHEET_URL||'Not configured';
+  const goEl=document.getElementById('gs-override'); if(goEl) goEl.value='';
+  const gsd=document.getElementById('gs-url-display'); if(gsd) gsd.textContent=getGsUrl()||'Not set';
   loadGsLiveSettings();
 }
 function saveShop(){
@@ -1952,26 +1931,32 @@ function changeCreds(){
   if(!u||!p){alert('Fill all fields');return;}if(p!==c){alert('Passwords do not match');return;}
   DB.set('creds',{u,p});alert('Updated! Please login again.');doLogout();
 }
-function getGSheetURL(){
-  return localStorage.getItem('sms2_gs-override')||window.GSHEET_URL||'';
-}
+function getGSheetURL(){ return getGsUrl(); }
 function backupSheets(){
-  const url=getGSheetURL();
-  const override=document.getElementById('gs-override').value.trim();
-  if(override) localStorage.setItem('sms2_gs-override',override);
-  const effectiveUrl=override||url;
-  if(!effectiveUrl||effectiveUrl.includes('YOUR_APPS_SCRIPT')){
-    alert('Please set your Apps Script URL first.\nEdit the GSHEET_URL variable at the top of this HTML file, or paste the URL in the override field.');return;
+  const url = getGsUrl();
+  if(!url || url.includes('YOUR_SCRIPT')){
+    alert('Set your Web App URL in Settings → Live Database first!'); return;
   }
-  document.getElementById('backup-status').innerHTML='<span style="color:var(--warning);">⏳ Sending...</span>';
-  const data={shop:DB.obj('shop'),products:DB.get('products'),customers:DB.get('customers'),vendors:DB.get('vendors'),sales:DB.get('sales'),purchases:DB.get('purchases'),payments:DB.get('payments'),ieEntries:DB.get('ie-entries'),timestamp:new Date().toISOString()};
-  fetch(effectiveUrl,{method:'POST',mode:'no-cors',body:JSON.stringify(data)})
-    .then(()=>{document.getElementById('backup-status').innerHTML=`<span style="color:var(--success);">✅ Backup sent at ${new Date().toLocaleTimeString()}</span>`;})
-    .catch(e=>{document.getElementById('backup-status').innerHTML=`<span style="color:var(--danger);">❌ ${e.message}</span>`;});
+  const statusEl = document.getElementById('backup-status');
+  if(statusEl) statusEl.innerHTML='<span style="color:var(--warning);">⏳ Sending full backup...</span>';
+  const data={
+    action:'fullBackup',
+    shop:DB.obj('shop'), products:DB.get('products'), customers:DB.get('customers'),
+    vendors:DB.get('vendors'), sales:DB.get('sales'), purchases:DB.get('purchases'),
+    payments:DB.get('payments'), 'ie-entries':DB.get('ie-entries'),
+    timestamp:new Date().toISOString()
+  };
+  fetch(url, {method:'POST', body:JSON.stringify(data)})
+    .then(r=>r.json())
+    .then(d=>{
+      const msg = d.status==='ok'
+        ? `✅ Backup done at ${new Date().toLocaleTimeString()} — <a href="${d.url}" target="_blank">Open Sheet →</a>`
+        : `❌ Error: ${d.message}`;
+      if(statusEl) statusEl.innerHTML=`<span style="color:${d.status==='ok'?'var(--success)':'var(--danger)'};">${msg}</span>`;
+    })
+    .catch(e=>{ if(statusEl) statusEl.innerHTML=`<span style="color:var(--danger);">❌ ${e.message}</span>`; });
 }
-function showSheetsGuide(){
-  alert('Google Sheets Setup:\n\n1. Open script.google.com → New Project\n2. Paste this code:\n\nfunction doPost(e) {\n  try {\n    const data = JSON.parse(e.postData.contents);\n    const ss = SpreadsheetApp.getActiveSpreadsheet();\n    // Write data.sales to a sheet named "Sales", etc.\n    Object.keys(data).forEach(key => {\n      if (Array.isArray(data[key]) && data[key].length) {\n        let sh = ss.getSheetByName(key) || ss.insertSheet(key);\n        sh.clearContents();\n        const headers = Object.keys(data[key][0]);\n        sh.getRange(1,1,1,headers.length).setValues([headers]);\n        sh.getRange(2,1,data[key].length,headers.length)\n          .setValues(data[key].map(r=>headers.map(h=>JSON.stringify(r[h])||"")));\n      }\n    });\n    return ContentService.createTextOutput("OK");\n  } catch(e) { return ContentService.createTextOutput("Error: "+e); }\n}\n\n3. Deploy → New Deployment → Web App → Anyone can access\n4. Copy Web App URL\n5. Edit GSHEET_URL at top of shop_management.html OR paste in override field');
-}
+function showSheetsGuide(){ showGsLiveGuide(); }
 function exportData(){
   const data={};
   ['products','customers','vendors','sales','purchases','payments','ie-entries','notes'].forEach(k=>{data[k]=DB.get(k);});
@@ -1992,12 +1977,9 @@ function clearAllData(){
   alert('Cleared.');location.reload();
 }
 
-// ===================== AUTO BACKUP =====================
-function autoBackup(record, type) {
-  const url=getGSheetURL();
-  if(!url||url.includes('YOUR_APPS_SCRIPT')) return;
-  fetch(url,{method:'POST',mode:'no-cors',body:JSON.stringify({autoBackup:true,type,record,timestamp:new Date().toISOString()})}).catch(()=>{});
-}
+// autoBackup is now handled automatically by DB.set() → gsPush()
+// These calls are kept for compatibility but are no-ops
+function autoBackup(record, type) { /* handled by DB.set */ }
 
 // ===================== DASHBOARD =====================
 function renderDashboard(){
