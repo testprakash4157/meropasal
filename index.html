@@ -76,6 +76,9 @@ nav a .ni{font-size:15px;width:18px;text-align:center;}
 .topbar-left{display:flex;align-items:center;gap:10px;}
 .topbar h1{font-size:15px;font-weight:600;color:var(--g800);}
 .topbar-right{display:flex;align-items:center;gap:8px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.spinning{display:inline-block;animation:spin .7s linear infinite;}
+@media(max-width:768px){.refresh-label{display:none;}}
 .np-date-top{background:var(--primary-light);color:var(--primary-dark);padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;}
 .en-date-top{font-size:11px;color:var(--g400);}
 .page{display:none;padding:18px;flex:1;}
@@ -302,6 +305,9 @@ tr:hover td{background:var(--g50);}
         <div class="np-date-top" id="tnpd">BS: —</div>
         <div class="en-date-top" id="tend"></div>
         <div id="sync-indicator" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:#d1fae5;color:#065f46;font-weight:600;">🌐 Live</div>
+        <button class="btn btn-outline btn-sm" id="refresh-btn" onclick="handleRefresh()" title="Pull latest data from Google Sheets" style="display:flex;align-items:center;gap:4px;">
+          <span id="refresh-icon">🔄</span><span class="refresh-label">Refresh</span>
+        </button>
         <button class="btn btn-purple btn-sm" onclick="openScanner('sale')" title="Scan barcode to sell">📷 Scan</button>
       </div>
     </div>
@@ -1010,7 +1016,46 @@ function showSyncBanner(msg, autoHide=0) {
   if (autoHide) setTimeout(() => { b.style.display = 'none'; }, autoHide);
 }
 
-// ── Settings helpers ──
+// ── Refresh button handler ──
+async function handleRefresh() {
+  const btn  = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  if (!btn || !icon) return;
+  // Animate
+  btn.disabled = true;
+  icon.className = 'spinning';
+  icon.textContent = '🔄';
+
+  const url = getGsUrl();
+  if (!url || url.includes('YOUR_SCRIPT')) {
+    // No GS — just reload page data from localStorage
+    refreshAllDropdowns();
+    renderDashboard();
+    showSyncBanner('✅ Refreshed from local data', 2000);
+  } else {
+    await gsPullAll();
+    // Re-render current page
+    const activePage = document.querySelector('.page.active');
+    if (activePage) {
+      const name = activePage.id.replace('page-','');
+      if (name === 'dashboard') renderDashboard();
+      else if (name === 'products') renderProducts();
+      else if (name === 'stock') renderStock();
+      else if (name === 'sales-list') renderSalesList();
+      else if (name === 'purchase-list') renderPurchaseList();
+      else if (name === 'customers') renderCustomers();
+      else if (name === 'vendors') renderVendors();
+      else if (name === 'dues') { renderCustDues(); renderVendDues(); renderPayHist(); }
+      else if (name === 'income-expense') renderIEList();
+    }
+  }
+  // Stop animation
+  setTimeout(() => {
+    if (icon) { icon.className = ''; icon.textContent = '🔄'; }
+    if (btn)  btn.disabled = false;
+  }, 1000);
+}
+
 function gsLiveSaveURL() {
   const url = (document.getElementById('gs-live-url')?.value || '').trim();
   if (!url) { alert('Paste your Apps Script Web App URL first'); return; }
