@@ -6,10 +6,24 @@
 <title>पसल व्यवस्थापन - Shop Management System</title>
 <!-- Google Apps Script URL - change this to your deployed URL -->
 <script>
-  window.GSHEET_URL = "https://script.google.com/macros/s/AKfycbxP80SWuou0T2IwY-zhjwQC-U_LRqHJev248O0AFXEEAnfChw5Bg5b5me_NxQAX3fTL/exec/";
+  window.GSHEET_URL = "https://script.google.com/macros/s/YOUR_APPS_SCRIPT_ID/exec";
 </script>
-<!-- ZXing barcode scanner library (works on all browsers including iOS Safari) -->
+<!-- ZXing barcode scanner -->
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
+<!-- Supabase JS client (live cross-browser database) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- ============================================================
+     SUPABASE CONFIG — Replace with your project credentials
+     1. Go to https://supabase.com → New Project (free)
+     2. Settings → API → copy Project URL and anon public key
+     3. Paste below
+     ============================================================ -->
+<script>
+  window.SUPABASE_URL  = "https://YOUR_PROJECT.supabase.co";
+  window.SUPABASE_KEY  = "YOUR_ANON_PUBLIC_KEY";
+  // Set to true once you've added your Supabase credentials above
+  window.SUPABASE_ENABLED = false;
+</script>
 <style>
 :root{
   --primary:#1a56db;--primary-dark:#1e40af;--primary-light:#dbeafe;
@@ -246,7 +260,7 @@ tr:hover td{background:var(--g50);}
     </div>
     <div class="fg"><label>Username / युजरनेम</label><input type="text" id="lu" value="admin"></div>
     <div class="fg"><label>Password / पासवर्ड</label><input type="password" id="lp" value="admin123"></div>
-    <button class="btn btn-primary btn-block" onclick="doLogin()">🔐 Login / प्रवेश गर्नुहोस्</button>
+    <button class="btn btn-primary btn-block" onclick="doLoginAsync()">🔐 Login / प्रवेश गर्नुहोस्</button>
     <div class="login-hint">Default: <strong>admin</strong> / <strong>admin123</strong></div>
     <div class="dev-credit">
       <p>Developed by <strong>Prakash Bhandari</strong></p>
@@ -297,6 +311,7 @@ tr:hover td{background:var(--g50);}
       <div class="topbar-right">
         <div class="np-date-top" id="tnpd">BS: —</div>
         <div class="en-date-top" id="tend"></div>
+        <div id="sync-indicator" style="display:none;font-size:11px;padding:3px 8px;border-radius:20px;background:#d1fae5;color:#065f46;font-weight:600;">🌐 Live</div>
         <button class="btn btn-purple btn-sm" onclick="openScanner('sale')" title="Scan barcode to sell">📷 Scan</button>
       </div>
     </div>
@@ -671,6 +686,23 @@ tr:hover td{background:var(--g50);}
             <button class="btn btn-warning" onclick="changeCreds()">🔑 Update</button>
           </div>
         </div>
+        <!-- SUPABASE LIVE SYNC -->
+        <div class="card"><div class="card-header"><h2>🌐 Live Database (Supabase)</h2><span id="sb-status-badge" class="badge bd">Not Connected</span></div>
+          <div class="card-body">
+            <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px;margin-bottom:12px;font-size:12px;color:#166534;">
+              <strong>🔴 Live sync across all browsers &amp; devices</strong><br>
+              Once configured, data is stored in the cloud — open the app on phone, tablet, or any PC and see the same data in real time.
+            </div>
+            <div class="field mb12"><label>Supabase Project URL</label><input id="sb-url-input" placeholder="https://xxxx.supabase.co"></div>
+            <div class="field mb12"><label>Supabase Anon Public Key</label><input id="sb-key-input" placeholder="eyJhbGci..."></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+              <button class="btn btn-success" onclick="saveSupabaseCreds()">💾 Save &amp; Connect</button>
+              <button class="btn btn-primary btn-sm" onclick="DB.syncFromCloud().then(()=>renderDashboard())">🔄 Sync Now</button>
+              <button class="btn btn-outline btn-sm" onclick="showSupabaseGuide()">❓ Setup Guide</button>
+            </div>
+            <div id="sb-connect-status" style="font-size:12px;"></div>
+          </div>
+        </div>
         <div class="card"><div class="card-header"><h2>☁️ Google Sheets Backup</h2></div>
           <div class="card-body">
             <div style="background:var(--primary-light);border-radius:6px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--primary-dark);">
@@ -922,12 +954,90 @@ function setupDateSync(adId, bsId) {
   adEl.addEventListener('input', sync);
 }
 
-// ===================== DATA LAYER =====================
-const DB = {
-  get(k, d=[]) { try { const v=localStorage.getItem('sms2_'+k); return v!==null ? JSON.parse(v) : d; } catch(e) { return d; } },
-  set(k, v) { localStorage.setItem('sms2_'+k, JSON.stringify(v)); },
-  obj(k, d={}) { try { const v=localStorage.getItem('sms2_'+k); return v!==null ? JSON.parse(v) : d; } catch(e) { return d; } }
+// ===================== DATA LAYER (Supabase + localStorage) =====================
+// localStorage is always used as a fast local cache.
+// When Supabase is enabled, all writes also sync to cloud so any browser/device sees live data.
+
+let _sb = null; // Supabase client instance
+
+function initSupabase() {
+  if (!window.SUPABASE_ENABLED) return;
+  try {
+    _sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
+    console.log('✅ Supabase connected');
+    // Show live indicator in topbar
+    const ind = document.getElementById('sync-indicator');
+    if (ind) ind.style.display = 'block';
+  } catch(e) {
+    console.warn('Supabase init failed:', e);
+    _sb = null;
+  }
+}
+
+// Table name map (Supabase table → localStorage key)
+const SB_TABLES = {
+  products:'products', customers:'customers', vendors:'vendors',
+  sales:'sales', purchases:'purchases', payments:'payments',
+  'ie-entries':'ie_entries', notes:'notes', shop:'shop'
 };
+
+const DB = {
+  // ---- LOCAL READ (instant) ----
+  get(k, d=[]) {
+    try { const v=localStorage.getItem('sms2_'+k); return v!==null ? JSON.parse(v) : d; }
+    catch(e) { return d; }
+  },
+  // ---- LOCAL READ object ----
+  obj(k, d={}) {
+    try { const v=localStorage.getItem('sms2_'+k); return v!==null ? JSON.parse(v) : d; }
+    catch(e) { return d; }
+  },
+  // ---- WRITE: local + cloud ----
+  set(k, v) {
+    localStorage.setItem('sms2_'+k, JSON.stringify(v));
+    if (_sb && window.SUPABASE_ENABLED) {
+      const tbl = SB_TABLES[k] || k;
+      _sb.from('shopdata').upsert({ key: tbl, value: v, updated_at: new Date().toISOString() })
+        .then(({error}) => { if(error) console.warn('SB write error:', error.message); });
+    }
+  },
+  // ---- FETCH FROM CLOUD (called on login) ----
+  async syncFromCloud() {
+    if (!_sb || !window.SUPABASE_ENABLED) return false;
+    try {
+      showSyncBanner('⏳ Syncing data from cloud...');
+      const { data, error } = await _sb.from('shopdata').select('key, value');
+      if (error) throw error;
+      if (data && data.length) {
+        data.forEach(row => {
+          const lsKey = Object.keys(SB_TABLES).find(k => SB_TABLES[k] === row.key) || row.key;
+          localStorage.setItem('sms2_'+lsKey, JSON.stringify(row.value));
+        });
+        showSyncBanner('✅ Synced from cloud!', 2000);
+        return true;
+      }
+      showSyncBanner('☁️ Cloud empty — using local data', 2000);
+      return false;
+    } catch(e) {
+      console.warn('Sync error:', e);
+      showSyncBanner('⚠️ Cloud sync failed — using local data', 2500);
+      return false;
+    }
+  }
+};
+
+function showSyncBanner(msg, autoHide=0) {
+  let b = document.getElementById('sync-banner');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'sync-banner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a56db;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+    document.body.appendChild(b);
+  }
+  b.textContent = msg;
+  b.style.display = 'block';
+  if (autoHide) setTimeout(() => { b.style.display='none'; }, autoHide);
+}
 
 // ===================== AUTH =====================
 function doLogin() {
@@ -939,12 +1049,37 @@ function doLogin() {
     initApp();
   } else alert('Invalid credentials / गलत प्रमाण-पत्र!');
 }
+async function doLoginAsync() {
+  const u=document.getElementById('lu').value, p=document.getElementById('lp').value;
+  // First check local creds
+  const localCr=DB.obj('creds', {u:'admin',p:'admin123'});
+  // If Supabase enabled, try to pull latest creds from cloud first
+  if (_sb && window.SUPABASE_ENABLED) {
+    try {
+      const {data} = await _sb.from('shopdata').select('value').eq('key','creds').single();
+      if (data?.value) {
+        localStorage.setItem('sms2_creds', JSON.stringify(data.value));
+      }
+    } catch(e) {}
+  }
+  const cr=DB.obj('creds', {u:'admin',p:'admin123'});
+  if (u===cr.u && p===cr.p) {
+    document.getElementById('login-screen').style.display='none';
+    document.getElementById('app').style.display='block';
+    await DB.syncFromCloud();
+    initApp();
+  } else {
+    alert('Invalid credentials / गलत प्रमाण-पत्र!');
+  }
+}
 function doLogout() {
   document.getElementById('app').style.display='none';
   document.getElementById('login-screen').style.display='flex';
   if (window._scanner) stopScanner();
 }
-document.getElementById('lp').addEventListener('keypress', e=>{ if(e.key==='Enter') doLogin(); });
+document.getElementById('lp').addEventListener('keypress', e=>{ if(e.key==='Enter') doLoginAsync(); });
+// Init Supabase immediately on page load (before login)
+initSupabase();
 
 // ===================== INIT =====================
 function initApp() {
@@ -977,8 +1112,15 @@ function initApp() {
     updateConvPreview();
   });
   ['pm-conv','pm-buy','pm-sell'].forEach(id => document.getElementById(id)?.addEventListener('input', updateConvPreview));
-  // Google Sheets URL display
-  document.getElementById('gs-url-display').textContent = window.GSHEET_URL || 'Not configured';
+  // Load saved Supabase creds and try to reconnect silently
+  const savedSbUrl = localStorage.getItem('sms2_sb_url');
+  const savedSbKey = localStorage.getItem('sms2_sb_key');
+  if (savedSbUrl && savedSbKey) {
+    window.SUPABASE_URL = savedSbUrl;
+    window.SUPABASE_KEY = savedSbKey;
+    window.SUPABASE_ENABLED = true;
+    initSupabase();
+  }
 }
 
 function showPage(name) {
@@ -1207,7 +1349,101 @@ function showInvoice(sale){
   window._printSale=sale; window._printShop=shop;
   document.getElementById('inv-view-modal').classList.add('open');
 }
-function buildInvoiceHTML(sale,shop){
+// ===================== AMOUNT IN WORDS =====================
+function amountInWords(amount) {
+  const num = Math.floor(amount);
+  const paise = Math.round((amount - num) * 100);
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
+    'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen',
+    'Seventeen','Eighteen','Nineteen'];
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+
+  function words(n) {
+    if (n === 0) return '';
+    if (n < 20) return ones[n] + ' ';
+    if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? ' '+ones[n%10] : '') + ' ';
+    if (n < 1000) return ones[Math.floor(n/100)] + ' Hundred ' + words(n%100);
+    if (n < 100000) return words(Math.floor(n/1000)) + 'Thousand ' + words(n%1000);
+    if (n < 10000000) return words(Math.floor(n/100000)) + 'Lakh ' + words(n%100000);
+    return words(Math.floor(n/10000000)) + 'Crore ' + words(n%10000000);
+  }
+
+  // Nepali words
+  const npOnes = ['','एक','दुई','तीन','चार','पाँच','छ','सात','आठ','नौ',
+    'दस','एघार','बाह्र','तेह्र','चौध','पन्ध्र','सोह्र','सत्र','अठार','उन्नाइस'];
+  const npTens = ['','','बीस','तीस','चालीस','पचास','साठी','सत्तरी','अस्सी','नब्बे'];
+
+  function npWords(n) {
+    if (n === 0) return '';
+    if (n < 20) return npOnes[n] + ' ';
+    if (n < 100) return npTens[Math.floor(n/10)] + (n%10 ? ' '+npOnes[n%10] : '') + ' ';
+    if (n < 1000) return npOnes[Math.floor(n/100)] + ' सय ' + npWords(n%100);
+    if (n < 100000) return npWords(Math.floor(n/1000)) + 'हजार ' + npWords(n%1000);
+    if (n < 10000000) return npWords(Math.floor(n/100000)) + 'लाख ' + npWords(n%100000);
+    return npWords(Math.floor(n/10000000)) + 'करोड ' + npWords(n%10000000);
+  }
+
+  const enStr = (words(num) || 'Zero ').trim() + (paise ? ' and ' + words(paise).trim() + ' Paisa' : '') + ' Only';
+  const npStr = (npWords(num) || 'शून्य ').trim() + (paise ? ' र ' + npWords(paise).trim() + ' पैसा' : '') + ' मात्र';
+  return { en: enStr, np: npStr };
+}
+
+// ===================== SUPABASE SETTINGS HELPERS =====================
+function saveSupabaseCreds() {
+  const url = document.getElementById('sb-url-input').value.trim();
+  const key = document.getElementById('sb-key-input').value.trim();
+  if (!url || !key) { alert('Enter both URL and Key'); return; }
+  localStorage.setItem('sms2_sb_url', url);
+  localStorage.setItem('sms2_sb_key', key);
+  window.SUPABASE_URL = url;
+  window.SUPABASE_KEY = key;
+  window.SUPABASE_ENABLED = true;
+  initSupabase();
+  if (_sb) {
+    document.getElementById('sb-connect-status').innerHTML = '<span style="color:var(--success);">✅ Connected! Testing sync...</span>';
+    document.getElementById('sb-status-badge').textContent = 'Connected';
+    document.getElementById('sb-status-badge').className = 'badge bs';
+    DB.syncFromCloud().then(ok => {
+      document.getElementById('sb-connect-status').innerHTML = ok
+        ? '<span style="color:var(--success);">✅ Live sync active. Data synced from cloud.</span>'
+        : '<span style="color:var(--warning);">⚠️ Connected but no cloud data yet. Start entering data!</span>';
+    });
+  } else {
+    document.getElementById('sb-connect-status').innerHTML = '<span style="color:var(--danger);">❌ Connection failed. Check URL and Key.</span>';
+  }
+}
+function loadSupabaseCreds() {
+  const url = localStorage.getItem('sms2_sb_url') || '';
+  const key = localStorage.getItem('sms2_sb_key') || '';
+  const urlEl = document.getElementById('sb-url-input');
+  const keyEl = document.getElementById('sb-key-input');
+  if (urlEl) urlEl.value = url;
+  if (keyEl) keyEl.value = key;
+  if (url && key) {
+    window.SUPABASE_URL = url; window.SUPABASE_KEY = key; window.SUPABASE_ENABLED = true;
+    const badge = document.getElementById('sb-status-badge');
+    if (badge) { badge.textContent = 'Connected'; badge.className = 'badge bs'; }
+  }
+}
+function showSupabaseGuide() {
+  alert(`Supabase Live Database Setup (FREE):
+
+1. Go to https://supabase.com → Sign Up (free)
+2. Click "New Project" → choose a name & password
+3. Wait ~1 min for project to start
+4. Go to Settings → API
+5. Copy "Project URL" → paste in URL field
+6. Copy "anon public" key → paste in Key field
+7. Go to Table Editor → New Table:
+   - Name: shopdata
+   - Columns:
+     • key (text, primary key)
+     • value (jsonb)
+     • updated_at (timestamptz)
+   - Disable Row Level Security (RLS) for now
+8. Click "Save & Connect" in the app
+9. Done! Open app on any device — same data everywhere.`);
+}
   return`<div style="font-family:'Segoe UI',sans-serif;font-size:13px;">
     <div style="text-align:center;border-bottom:2px solid #1a56db;padding-bottom:10px;margin-bottom:12px;">
       <div style="font-size:20px;font-weight:700;color:#1a56db;">${shop.name||'My Shop'}</div>
@@ -1222,7 +1458,7 @@ function buildInvoiceHTML(sale,shop){
       <thead><tr style="background:#f1f5f9;">${['#','Product','Qty','Unit','Price','Disc%','Total'].map(h=>`<th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left;font-size:11px;">${h}</th>`).join('')}</tr></thead>
       <tbody>${sale.items.map((it,i)=>`<tr>${[i+1,it.prodName,it.qty,it.unit||'','रू '+it.price.toFixed(2),it.disc+'%','रू '+it.total.toFixed(2)].map(v=>`<td style="padding:5px 8px;border:1px solid #e5e7eb;">${v}</td>`).join('')}</tr>`).join('')}</tbody>
     </table>
-    <div style="display:flex;justify-content:flex-end;">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
       <table style="font-size:12px;min-width:190px;">
         <tr><td style="padding:3px 8px;color:#6b7280;">Subtotal:</td><td style="text-align:right;">रू ${sale.sub.toFixed(2)}</td></tr>
         ${sale.disc?`<tr><td style="padding:3px 8px;color:#6b7280;">Discount:</td><td style="text-align:right;color:#dc2626;">-रू ${sale.disc.toFixed(2)}</td></tr>`:''}
@@ -1230,8 +1466,13 @@ function buildInvoiceHTML(sale,shop){
         <tr style="font-weight:700;font-size:14px;"><td style="padding:6px 8px;border-top:2px solid #1a56db;">TOTAL:</td><td style="text-align:right;color:#1a56db;border-top:2px solid #1a56db;">रू ${sale.total.toFixed(2)}</td></tr>
       </table>
     </div>
-    ${sale.note?`<p style="margin-top:8px;font-size:11px;color:#6b7280;">Note: ${sale.note}</p>`:''}
-    <div style="text-align:center;margin-top:14px;font-size:11px;color:#9ca3af;border-top:1px dashed #e5e7eb;padding-top:8px;">Thank you! धन्यवाद!</div>
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;">
+      <span style="color:#6b7280;font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.04em;">Amount in Words / रकम अक्षरमा:</span><br>
+      <span style="font-weight:700;color:#065f46;font-size:13px;">${(()=>{const w=amountInWords(sale.total);return w.np;})()}</span><br>
+      <span style="color:#374151;font-style:italic;font-size:11px;">${(()=>{const w=amountInWords(sale.total);return w.en;})()}</span>
+    </div>
+    ${sale.note?`<p style="margin-top:8px;font-size:11px;color:#6b7280;"><b>Note:</b> ${sale.note}</p>`:''}
+    <div style="text-align:center;margin-top:14px;font-size:11px;color:#9ca3af;border-top:1px dashed #e5e7eb;padding-top:8px;">Thank you for your business! धन्यवाद! &nbsp;|&nbsp; ${shop.name||'My Shop'}${shop.phone?' | Ph: '+shop.phone:''}</div>
   </div>`;
 }
 function printInvoice(){
@@ -1742,6 +1983,9 @@ function loadShopSettings(){
   document.getElementById('sh-low').value=s.lowStock||5;
   const override=localStorage.getItem('sms2_gs-override')||'';
   document.getElementById('gs-override').value=override;
+  loadSupabaseCreds();
+  const gsd=document.getElementById('gs-url-display');
+  if(gsd) gsd.textContent=window.GSHEET_URL||'Not configured';
 }
 function saveShop(){
   DB.set('shop',{name:document.getElementById('sh-name').value,address:document.getElementById('sh-addr').value,phone:document.getElementById('sh-phone').value,pan:document.getElementById('sh-pan').value,lowStock:+document.getElementById('sh-low').value||5});
