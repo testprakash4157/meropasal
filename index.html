@@ -10,19 +10,11 @@
 </script>
 <!-- ZXing barcode scanner -->
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js"></script>
-<!-- Supabase JS client (live cross-browser database) -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<!-- ============================================================
-     SUPABASE CONFIG — Replace with your project credentials
-     1. Go to https://supabase.com → New Project (free)
-     2. Settings → API → copy Project URL and anon public key
-     3. Paste below
-     ============================================================ -->
 <script>
-  window.SUPABASE_URL  = "https://YOUR_PROJECT.supabase.co";
-  window.SUPABASE_KEY  = "YOUR_ANON_PUBLIC_KEY";
-  // Set to true once you've added your Supabase credentials above
-  window.SUPABASE_ENABLED = false;
+  // ── Google Sheets Live URL ──────────────────────────────────────────
+  // Paste your Apps Script Web App URL here OR set it in Settings page
+  window.GS_LIVE_URL = "";
+  // ───────────────────────────────────────────────────────────────────
 </script>
 <style>
 :root{
@@ -686,21 +678,20 @@ tr:hover td{background:var(--g50);}
             <button class="btn btn-warning" onclick="changeCreds()">🔑 Update</button>
           </div>
         </div>
-        <!-- SUPABASE LIVE SYNC -->
-        <div class="card"><div class="card-header"><h2>🌐 Live Database (Supabase)</h2><span id="sb-status-badge" class="badge bd">Not Connected</span></div>
+        <!-- GOOGLE SHEETS LIVE SYNC -->
+        <div class="card"><div class="card-header"><h2>🌐 Live Data — Google Sheets</h2><span id="gs-live-badge" class="badge bd">Not Connected</span></div>
           <div class="card-body">
             <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:10px;margin-bottom:12px;font-size:12px;color:#166534;">
-              <strong>🔴 Live sync across all browsers &amp; devices</strong><br>
-              Once configured, data is stored in the cloud — open the app on phone, tablet, or any PC and see the same data in real time.
+              <strong>🟢 Live sync across ALL browsers &amp; devices via Google Sheets</strong><br>
+              Every sale, purchase, product, payment saves directly to your Google Sheet. Open the app on any phone or PC — data is always up to date.
             </div>
-            <div class="field mb12"><label>Supabase Project URL</label><input id="sb-url-input" placeholder="https://xxxx.supabase.co"></div>
-            <div class="field mb12"><label>Supabase Anon Public Key</label><input id="sb-key-input" placeholder="eyJhbGci..."></div>
+            <div class="field mb12"><label>Apps Script Web App URL</label><input id="gs-live-url" placeholder="https://script.google.com/macros/s/.../exec"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-              <button class="btn btn-success" onclick="saveSupabaseCreds()">💾 Save &amp; Connect</button>
-              <button class="btn btn-primary btn-sm" onclick="DB.syncFromCloud().then(()=>renderDashboard())">🔄 Sync Now</button>
-              <button class="btn btn-outline btn-sm" onclick="showSupabaseGuide()">❓ Setup Guide</button>
+              <button class="btn btn-success" onclick="gsLiveSaveURL()">💾 Save &amp; Test</button>
+              <button class="btn btn-primary btn-sm" onclick="gsLivePullAll()">🔄 Pull All Data</button>
+              <button class="btn btn-outline btn-sm" onclick="showGsLiveGuide()">❓ Setup Guide</button>
             </div>
-            <div id="sb-connect-status" style="font-size:12px;"></div>
+            <div id="gs-live-status" style="font-size:12px;margin-top:6px;"></div>
           </div>
         </div>
         <div class="card"><div class="card-header"><h2>☁️ Google Sheets Backup</h2></div>
@@ -958,128 +949,158 @@ function setupDateSync(adId, bsId) {
 // localStorage is always used as a fast local cache.
 // When Supabase is enabled, all writes also sync to cloud so any browser/device sees live data.
 
-let _sb = null; // Supabase client instance
-
-function initSupabase() {
-  if (!window.SUPABASE_ENABLED) return;
-  try {
-    _sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_KEY);
-    console.log('✅ Supabase connected');
-    // Show live indicator in topbar
-    const ind = document.getElementById('sync-indicator');
-    if (ind) ind.style.display = 'block';
-  } catch(e) {
-    console.warn('Supabase init failed:', e);
-    _sb = null;
-  }
-}
-
-// Table name map (Supabase table → localStorage key)
-const SB_TABLES = {
-  products:'products', customers:'customers', vendors:'vendors',
-  sales:'sales', purchases:'purchases', payments:'payments',
-  'ie-entries':'ie_entries', notes:'notes', shop:'shop'
-};
+// ===================== DATA LAYER (Google Sheets Live + localStorage cache) =====================
+// localStorage = instant local cache (works offline too)
+// Google Sheets API = source of truth across all devices
 
 const DB = {
-  // ---- LOCAL READ (instant) ----
-  get(k, d=[]) {
-    try { const v=localStorage.getItem('sms2_'+k); return v!==null ? JSON.parse(v) : d; }
-    catch(e) { return d; }
-  },
-  // ---- LOCAL READ object ----
-  obj(k, d={}) {
-    try { const v=localStorage.getItem('sms2_'+k); return v!==null ? JSON.parse(v) : d; }
-    catch(e) { return d; }
-  },
-  // ---- WRITE: local + cloud ----
+  get(k, d=[])  { try { const v=localStorage.getItem('sms2_'+k); return v!==null?JSON.parse(v):d; } catch(e){return d;} },
+  obj(k, d={})  { try { const v=localStorage.getItem('sms2_'+k); return v!==null?JSON.parse(v):d; } catch(e){return d;} },
+  // Write locally AND push to Google Sheets
   set(k, v) {
     localStorage.setItem('sms2_'+k, JSON.stringify(v));
-    if (_sb && window.SUPABASE_ENABLED) {
-      const tbl = SB_TABLES[k] || k;
-      _sb.from('shopdata').upsert({ key: tbl, value: v, updated_at: new Date().toISOString() })
-        .then(({error}) => { if(error) console.warn('SB write error:', error.message); });
-    }
-  },
-  // ---- FETCH FROM CLOUD (called on login) ----
-  async syncFromCloud() {
-    if (!_sb || !window.SUPABASE_ENABLED) return false;
-    try {
-      showSyncBanner('⏳ Syncing data from cloud...');
-      const { data, error } = await _sb.from('shopdata').select('key, value');
-      if (error) throw error;
-      if (data && data.length) {
-        data.forEach(row => {
-          const lsKey = Object.keys(SB_TABLES).find(k => SB_TABLES[k] === row.key) || row.key;
-          localStorage.setItem('sms2_'+lsKey, JSON.stringify(row.value));
-        });
-        showSyncBanner('✅ Synced from cloud!', 2000);
-        return true;
-      }
-      showSyncBanner('☁️ Cloud empty — using local data', 2000);
-      return false;
-    } catch(e) {
-      console.warn('Sync error:', e);
-      showSyncBanner('⚠️ Cloud sync failed — using local data', 2500);
-      return false;
-    }
+    gsLivePush(k, v);
   }
 };
+
+function getGsLiveURL() {
+  return localStorage.getItem('sms2_gs_live_url') || window.GS_LIVE_URL || '';
+}
+
+// Push one key→value to Google Sheets (fire-and-forget)
+function gsLivePush(key, value) {
+  const url = getGsLiveURL(); if (!url) return;
+  fetch(url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'set', key, value })
+  }).catch(() => {});
+}
+
+// Pull ALL data from Google Sheets and write to localStorage
+async function gsLivePullAll() {
+  const url = getGsLiveURL();
+  if (!url) {
+    showSyncBanner('⚠️ No Google Sheets URL set. Go to Settings → Live Data.', 3000); return false;
+  }
+  showSyncBanner('⏳ Pulling data from Google Sheets...');
+  try {
+    const res = await fetch(url + '?action=getAll&t=' + Date.now());
+    const data = await res.json();
+    if (data && data.store) {
+      Object.keys(data.store).forEach(k => {
+        localStorage.setItem('sms2_' + k, JSON.stringify(data.store[k]));
+      });
+      showSyncBanner('✅ Synced from Google Sheets!', 2500);
+      refreshAllDropdowns(); renderDashboard();
+      return true;
+    }
+    showSyncBanner('☁️ Sheet empty — using local data', 2500); return false;
+  } catch(e) {
+    showSyncBanner('❌ Sync failed: ' + e.message, 3000); return false;
+  }
+}
 
 function showSyncBanner(msg, autoHide=0) {
   let b = document.getElementById('sync-banner');
   if (!b) {
-    b = document.createElement('div');
-    b.id = 'sync-banner';
-    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a56db;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.2);';
+    b = document.createElement('div'); b.id = 'sync-banner';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#1a56db;color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.15);transition:all .3s;';
     document.body.appendChild(b);
   }
-  b.textContent = msg;
-  b.style.display = 'block';
+  b.textContent = msg; b.style.display = 'block';
   if (autoHide) setTimeout(() => { b.style.display='none'; }, autoHide);
 }
 
-// ===================== AUTH =====================
-function doLogin() {
-  const u=document.getElementById('lu').value, p=document.getElementById('lp').value;
-  const cr=DB.obj('creds', {u:'admin',p:'admin123'});
-  if (u===cr.u && p===cr.p) {
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('app').style.display='block';
-    initApp();
-  } else alert('Invalid credentials / गलत प्रमाण-पत्र!');
-}
-async function doLoginAsync() {
-  const u=document.getElementById('lu').value, p=document.getElementById('lp').value;
-  // First check local creds
-  const localCr=DB.obj('creds', {u:'admin',p:'admin123'});
-  // If Supabase enabled, try to pull latest creds from cloud first
-  if (_sb && window.SUPABASE_ENABLED) {
-    try {
-      const {data} = await _sb.from('shopdata').select('value').eq('key','creds').single();
-      if (data?.value) {
-        localStorage.setItem('sms2_creds', JSON.stringify(data.value));
+// ===================== GOOGLE SHEETS LIVE SETTINGS =====================
+function gsLiveSaveURL() {
+  const url = document.getElementById('gs-live-url').value.trim();
+  if (!url) { alert('Paste your Apps Script URL'); return; }
+  localStorage.setItem('sms2_gs_live_url', url);
+  window.GS_LIVE_URL = url;
+  const statusEl = document.getElementById('gs-live-status');
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--warning);">⏳ Testing connection...</span>';
+  // Test by pulling data
+  fetch(url + '?action=getAll&t=' + Date.now())
+    .then(r => r.json())
+    .then(d => {
+      gsLiveUpdateBadge(true);
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✅ Connected! Google Sheets is live.</span>';
+      // Pull data if sheet has data
+      if (d && d.store && Object.keys(d.store).length > 0) {
+        Object.keys(d.store).forEach(k => localStorage.setItem('sms2_'+k, JSON.stringify(d.store[k])));
+        showSyncBanner('✅ Data pulled from Google Sheets!', 2500);
+        refreshAllDropdowns(); renderDashboard();
       }
-    } catch(e) {}
+    })
+    .catch(e => {
+      gsLiveUpdateBadge(false);
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">❌ Failed: ' + e.message + '. Check URL and deployment.</span>';
+    });
+}
+function gsLiveUpdateBadge(ok) {
+  const b = document.getElementById('gs-live-badge');
+  if (!b) return;
+  b.textContent = ok ? 'Connected ✅' : 'Not Connected';
+  b.className = 'badge ' + (ok ? 'bs' : 'bd');
+  const ind = document.getElementById('sync-indicator');
+  if (ind) ind.style.display = ok ? 'block' : 'none';
+}
+function showGsLiveGuide() {
+  alert(`Google Sheets Live Setup Guide:
+
+1. Open script.google.com → New Project
+2. Paste the new Code.gs (download from the app)
+3. Deploy → New Deployment → Web App
+   • Execute as: Me
+   • Who has access: Anyone
+4. Copy Web App URL
+5. Paste it in Settings → Live Data → Save & Test
+
+That's it! Every sale/purchase/product instantly saves
+to Google Sheets. Open the app on any device and click
+"Pull All Data" to get the latest data.`);
+}
+function loadGsLiveSettings() {
+  const url = getGsLiveURL();
+  const el = document.getElementById('gs-live-url');
+  if (el) el.value = url;
+  if (url) gsLiveUpdateBadge(true);
+}
+
+// ===================== AUTH =====================
+async function doLoginAsync() {
+  const u = document.getElementById('lu').value;
+  const p = document.getElementById('lp').value;
+  const gsUrl = getGsLiveURL();
+  // If Google Sheets URL is set, pull latest creds from cloud first
+  if (gsUrl) {
+    try {
+      showSyncBanner('⏳ Checking credentials from cloud...');
+      const res = await fetch(gsUrl + '?action=getKey&key=creds&t=' + Date.now());
+      const d = await res.json();
+      if (d && d.value) localStorage.setItem('sms2_creds', JSON.stringify(d.value));
+      showSyncBanner('', 0); document.getElementById('sync-banner').style.display='none';
+    } catch(e) { /* use local creds */ const b=document.getElementById('sync-banner'); if(b)b.style.display='none'; }
   }
-  const cr=DB.obj('creds', {u:'admin',p:'admin123'});
-  if (u===cr.u && p===cr.p) {
-    document.getElementById('login-screen').style.display='none';
-    document.getElementById('app').style.display='block';
-    await DB.syncFromCloud();
+  const cr = DB.obj('creds', {u:'admin', p:'admin123'});
+  if (u === cr.u && p === cr.p) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    if (gsUrl) await gsLivePullAll();
     initApp();
   } else {
     alert('Invalid credentials / गलत प्रमाण-पत्र!');
   }
 }
+function doLogin() { doLoginAsync(); }
 function doLogout() {
-  document.getElementById('app').style.display='none';
-  document.getElementById('login-screen').style.display='flex';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'flex';
   if (window._scanner) stopScanner();
 }
-document.getElementById('lp').addEventListener('keypress', e=>{ if(e.key==='Enter') doLoginAsync(); });
-// Init Supabase immediately on page load (before login)
-initSupabase();
+document.getElementById('lp').addEventListener('keypress', e => { if(e.key==='Enter') doLoginAsync(); });
 
 // ===================== INIT =====================
 function initApp() {
@@ -1091,7 +1112,6 @@ function initApp() {
   });
   setupDateSync('inv-date','inv-bs-date');
   setupDateSync('pur-date','pur-bs-date');
-  // Init BS display
   ['inv-date','pur-date'].forEach(id => {
     const el=document.getElementById(id); if(el) el.dispatchEvent(new Event('change'));
   });
@@ -1100,7 +1120,6 @@ function initApp() {
   setNextInvNo();
   loadShopSettings();
   renderDashboard();
-  // Show scan FAB on mobile
   if (window.innerWidth <= 768) document.getElementById('scan-fab').style.display='flex';
   // Product modal unit handlers
   document.getElementById('pm-unit').addEventListener('change', function() {
@@ -1112,15 +1131,8 @@ function initApp() {
     updateConvPreview();
   });
   ['pm-conv','pm-buy','pm-sell'].forEach(id => document.getElementById(id)?.addEventListener('input', updateConvPreview));
-  // Load saved Supabase creds and try to reconnect silently
-  const savedSbUrl = localStorage.getItem('sms2_sb_url');
-  const savedSbKey = localStorage.getItem('sms2_sb_key');
-  if (savedSbUrl && savedSbKey) {
-    window.SUPABASE_URL = savedSbUrl;
-    window.SUPABASE_KEY = savedSbKey;
-    window.SUPABASE_ENABLED = true;
-    initSupabase();
-  }
+  // Show live indicator if GS URL already saved
+  if (getGsLiveURL()) gsLiveUpdateBadge(true);
 }
 
 function showPage(name) {
@@ -1388,62 +1400,7 @@ function amountInWords(amount) {
   return { en: enStr, np: npStr };
 }
 
-// ===================== SUPABASE SETTINGS HELPERS =====================
-function saveSupabaseCreds() {
-  const url = document.getElementById('sb-url-input').value.trim();
-  const key = document.getElementById('sb-key-input').value.trim();
-  if (!url || !key) { alert('Enter both URL and Key'); return; }
-  localStorage.setItem('sms2_sb_url', url);
-  localStorage.setItem('sms2_sb_key', key);
-  window.SUPABASE_URL = url;
-  window.SUPABASE_KEY = key;
-  window.SUPABASE_ENABLED = true;
-  initSupabase();
-  if (_sb) {
-    document.getElementById('sb-connect-status').innerHTML = '<span style="color:var(--success);">✅ Connected! Testing sync...</span>';
-    document.getElementById('sb-status-badge').textContent = 'Connected';
-    document.getElementById('sb-status-badge').className = 'badge bs';
-    DB.syncFromCloud().then(ok => {
-      document.getElementById('sb-connect-status').innerHTML = ok
-        ? '<span style="color:var(--success);">✅ Live sync active. Data synced from cloud.</span>'
-        : '<span style="color:var(--warning);">⚠️ Connected but no cloud data yet. Start entering data!</span>';
-    });
-  } else {
-    document.getElementById('sb-connect-status').innerHTML = '<span style="color:var(--danger);">❌ Connection failed. Check URL and Key.</span>';
-  }
-}
-function loadSupabaseCreds() {
-  const url = localStorage.getItem('sms2_sb_url') || '';
-  const key = localStorage.getItem('sms2_sb_key') || '';
-  const urlEl = document.getElementById('sb-url-input');
-  const keyEl = document.getElementById('sb-key-input');
-  if (urlEl) urlEl.value = url;
-  if (keyEl) keyEl.value = key;
-  if (url && key) {
-    window.SUPABASE_URL = url; window.SUPABASE_KEY = key; window.SUPABASE_ENABLED = true;
-    const badge = document.getElementById('sb-status-badge');
-    if (badge) { badge.textContent = 'Connected'; badge.className = 'badge bs'; }
-  }
-}
-function showSupabaseGuide() {
-  alert(`Supabase Live Database Setup (FREE):
-
-1. Go to https://supabase.com → Sign Up (free)
-2. Click "New Project" → choose a name & password
-3. Wait ~1 min for project to start
-4. Go to Settings → API
-5. Copy "Project URL" → paste in URL field
-6. Copy "anon public" key → paste in Key field
-7. Go to Table Editor → New Table:
-   - Name: shopdata
-   - Columns:
-     • key (text, primary key)
-     • value (jsonb)
-     • updated_at (timestamptz)
-   - Disable Row Level Security (RLS) for now
-8. Click "Save & Connect" in the app
-9. Done! Open app on any device — same data everywhere.`);
-}
+function buildInvoiceHTML(sale,shop){
   return`<div style="font-family:'Segoe UI',sans-serif;font-size:13px;">
     <div style="text-align:center;border-bottom:2px solid #1a56db;padding-bottom:10px;margin-bottom:12px;">
       <div style="font-size:20px;font-weight:700;color:#1a56db;">${shop.name||'My Shop'}</div>
@@ -1982,10 +1939,9 @@ function loadShopSettings(){
   document.getElementById('sh-pan').value=s.pan||'';
   document.getElementById('sh-low').value=s.lowStock||5;
   const override=localStorage.getItem('sms2_gs-override')||'';
-  document.getElementById('gs-override').value=override;
-  loadSupabaseCreds();
-  const gsd=document.getElementById('gs-url-display');
-  if(gsd) gsd.textContent=window.GSHEET_URL||'Not configured';
+  const goEl=document.getElementById('gs-override'); if(goEl) goEl.value=override;
+  const gsd=document.getElementById('gs-url-display'); if(gsd) gsd.textContent=window.GSHEET_URL||'Not configured';
+  loadGsLiveSettings();
 }
 function saveShop(){
   DB.set('shop',{name:document.getElementById('sh-name').value,address:document.getElementById('sh-addr').value,phone:document.getElementById('sh-phone').value,pan:document.getElementById('sh-pan').value,lowStock:+document.getElementById('sh-low').value||5});
