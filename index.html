@@ -519,7 +519,10 @@ tr:hover td{background:var(--g50);}
     <div class="page" id="page-stock">
       <div class="card">
         <div class="card-header"><h2>📊 Stock Report</h2>
-          <button class="btn btn-outline btn-sm" onclick="printStock()">🖨️ Print</button>
+          <div style="display:flex;gap:7px;flex-wrap:wrap;">
+            <button class="btn btn-outline btn-sm" onclick="printStock('all')">🖨️ Print All</button>
+            <button class="btn btn-danger btn-sm" onclick="printStock('low')">⚠️ Print Low Stock</button>
+          </div>
         </div>
         <div id="stock-alerts" style="padding:0 14px;"></div>
         <div class="tw"><table>
@@ -1470,12 +1473,11 @@ function amountInWords(amount) {
 
 function buildInvoiceHTML(sale,shop){
   const w = amountInWords(sale.total);
-  // Build Bill To block with PAN/address
   const billParts = [];
   billParts.push(`<strong style="font-size:14px;">${sale.custName||'Walk-in Customer'}</strong>`);
-  if(sale.custAddress) billParts.push(`📍 ${sale.custAddress}`);
-  if(sale.custPhone)   billParts.push(`📞 ${sale.custPhone}`);
-  if(sale.custPan)     billParts.push(`<span style="background:#fef3c7;padding:1px 6px;border-radius:4px;"><strong>PAN/VAT: ${sale.custPan}</strong></span>`);
+  if(sale.custAddress) billParts.push(`<span style="color:#374151;">📍 ${sale.custAddress}</span>`);
+  if(sale.custPhone)   billParts.push(`<span style="color:#374151;">📞 ${sale.custPhone}</span>`);
+  if(sale.custPan)     billParts.push(`<span style="display:inline-block;background:#fef9c3;border:1px solid #fde047;padding:1px 7px;border-radius:4px;font-size:11px;"><strong>PAN/VAT: ${sale.custPan}</strong></span>`);
   const billTo = billParts.join('<br>');
   return`<div style="font-family:'Segoe UI',sans-serif;font-size:13px;max-width:680px;margin:0 auto;">
     <!-- Header -->
@@ -1502,12 +1504,24 @@ function buildInvoiceHTML(sale,shop){
     <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
       <thead>
         <tr style="background:#1a56db;">
-          ${['#','Product / Item','Qty','Unit','Rate (रू)','Disc%','Amount (रू)'].map(h=>`<th style="padding:7px 9px;border:1px solid #1a56db;text-align:left;font-size:11px;color:#fff;font-weight:700;">${h}</th>`).join('')}
+          <th style="width:32px;padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;text-align:center;">#</th>
+          <th style="padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;">Product / Item Description</th>
+          <th style="width:55px;padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;text-align:center;">Qty</th>
+          <th style="width:55px;padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;text-align:center;">Unit</th>
+          <th style="width:90px;padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;text-align:right;">Rate (रू)</th>
+          <th style="width:55px;padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;text-align:center;">Disc%</th>
+          <th style="width:100px;padding:8px 9px;border:1px solid #1e40af;color:#fff;font-size:11px;font-weight:700;text-align:right;">Amount (रू)</th>
         </tr>
       </thead>
       <tbody>
         ${sale.items.map((it,i)=>`<tr style="background:${i%2===0?'#fff':'#f8fafc'};">
-          ${[i+1,it.prodName,it.qty,it.unit||'','रू '+it.price.toFixed(2),it.disc?it.disc+'%':'—','रू '+it.total.toFixed(2)].map(v=>`<td style="padding:7px 9px;border:1px solid #e2e8f0;font-size:12.5px;">${v}</td>`).join('')}
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;text-align:center;color:#6b7280;font-size:11px;">${i+1}</td>
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;font-size:12.5px;font-weight:500;">${it.prodName}</td>
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;text-align:center;font-weight:600;">${it.qty}</td>
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;text-align:center;color:#6b7280;font-size:11px;">${it.unit||'—'}</td>
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;text-align:right;">रू ${it.price.toFixed(2)}</td>
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;text-align:center;color:${it.disc?'#dc2626':'#9ca3af'};">${it.disc?it.disc+'%':'—'}</td>
+          <td style="padding:7px 9px;border:1px solid #e2e8f0;text-align:right;font-weight:700;">रू ${it.total.toFixed(2)}</td>
         </tr>`).join('')}
       </tbody>
     </table>
@@ -1537,7 +1551,14 @@ function buildInvoiceHTML(sale,shop){
 }
 function printInvoice(){
   if(!window._printSale) return;
-  printHTML(buildInvoiceHTML(window._printSale, window._printShop||{}), 'Invoice '+window._printSale.invNo);
+  const html = buildInvoiceHTML(window._printSale, window._printShop||DB.obj('shop',{name:'My Shop'}));
+  openPrintWindow(`<!DOCTYPE html><html><head><title>Invoice ${window._printSale.invNo}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',Arial,sans-serif;padding:18px 22px;font-size:13px;color:#1f2937;background:#fff;}
+    table{border-collapse:collapse;width:100%;}
+    @media print{button,.no-print{display:none;}body{padding:10px 14px;}}
+    @page{size:A4;margin:12mm;}
+  </style></head><body>${html}<script>setTimeout(()=>window.print(),350);<\/script></body></html>`);
 }
 function renderSalesList(){
   const sales=DB.get('sales'); const fdate=document.getElementById('sf-date')?.value||'';
@@ -1751,13 +1772,68 @@ function renderStock(){
   document.getElementById('stk-val').textContent='रू '+tv.toFixed(2);
   document.getElementById('stk-low').textContent=low.length;
 }
-function printStock(){
-  const prods=DB.get('products');
-  printHTML(`<h2>Stock Report — BS: ${npDate().full}</h2>
-    <table border="1" cellpadding="5" style="border-collapse:collapse;width:100%;">
-    <tr><th>Barcode</th><th>Product</th><th>Stock</th><th>Unit</th><th>Sub-unit Stock</th><th>Buy Price</th><th>Sell Price</th><th>Value</th></tr>
-    ${prods.map(p=>`<tr><td>${p.barcode||'-'}</td><td>${p.name}</td><td>${p.stock}</td><td>${p.unit}</td><td>${p.subUnit&&p.conv>0?(p.stock*p.conv).toFixed(2)+' '+p.subUnit:'—'}</td><td>रू ${(+p.buyPrice).toFixed(2)}</td><td>रू ${(+p.sellPrice).toFixed(2)}</td><td>रू ${(p.stock*p.buyPrice).toFixed(2)}</td></tr>`).join('')}
-    </table>`,'Stock Report');
+function printStock(filter='all'){
+  const allProds = DB.get('products');
+  const prods = filter==='low' ? allProds.filter(p=>p.stock<=p.minStock) : allProds;
+  const totalVal = prods.reduce((s,p)=>s+(+p.stock)*(+p.buyPrice),0);
+  const title = filter==='low' ? 'Low Stock Report' : 'Full Stock Report';
+  const rows = prods.map((p,i)=>{
+    const subStock = p.subUnit&&p.conv>0 ? (p.stock*p.conv).toFixed(2)+' '+p.subUnit : '—';
+    const val = (p.stock*p.buyPrice).toFixed(2);
+    const isLow = p.stock<=p.minStock;
+    return `<tr style="background:${isLow?'#fff7ed':'#fff'};">
+      <td style="color:#6b7280;font-size:11px;">${p.barcode||'—'}</td>
+      <td><strong>${p.name}</strong><br><span style="font-size:10px;color:#6b7280;">${p.category||''}</span></td>
+      <td style="text-align:center;font-weight:700;color:${isLow?'#dc2626':'#059669'};">${p.stock} ${p.unit}</td>
+      <td style="text-align:center;color:#6b7280;font-size:11px;">${subStock}</td>
+      <td style="text-align:right;">रू ${(+p.buyPrice).toFixed(2)}</td>
+      <td style="text-align:right;">रू ${(+p.sellPrice).toFixed(2)}</td>
+      <td style="text-align:right;font-weight:600;">रू ${val}</td>
+      <td style="text-align:center;"><span style="background:${isLow?'#fee2e2':'#d1fae5'};color:${isLow?'#991b1b':'#065f46'};padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;">${isLow?'⚠ LOW':'✓ OK'}</span></td>
+    </tr>`;
+  }).join('');
+  const shop = DB.obj('shop',{name:'My Shop',address:'',phone:'',pan:''});
+  openPrintWindow(`<!DOCTYPE html><html><head><title>${title}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;font-size:12.5px;color:#1f2937;}
+    table{border-collapse:collapse;width:100%;}
+    th{background:#1a56db;color:#fff;padding:8px 10px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;}
+    td{padding:7px 10px;border-bottom:1px solid #e5e7eb;}
+    tr:hover td{background:#f8fafc;}
+    .hdr{text-align:center;border-bottom:2px solid #1a56db;padding-bottom:10px;margin-bottom:16px;}
+    .summary{display:flex;gap:14px;margin-bottom:16px;flex-wrap:wrap;}
+    .sum-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:8px 14px;flex:1;min-width:120px;text-align:center;}
+    .sum-label{font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;font-weight:700;}
+    .sum-val{font-size:18px;font-weight:800;color:#1a56db;margin-top:2px;}
+    @media print{button{display:none;}@page{size:A4 landscape;margin:10mm;}}
+  </style></head><body>
+  <div class="hdr">
+    <div style="font-size:18px;font-weight:700;color:#1a56db;">${shop.name||'My Shop'}</div>
+    <div style="color:#6b7280;font-size:11px;margin-top:2px;">${[shop.address,shop.phone?'Ph: '+shop.phone:'',shop.pan?'PAN: '+shop.pan:''].filter(Boolean).join(' | ')}</div>
+    <div style="font-size:14px;font-weight:700;margin-top:6px;">${title.toUpperCase()}</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:3px;">Date: ${new Date().toLocaleDateString()} | BS: ${npDate().full}</div>
+  </div>
+  <div class="summary">
+    <div class="sum-box"><div class="sum-label">Total Products</div><div class="sum-val">${prods.length}</div></div>
+    <div class="sum-box"><div class="sum-label">Total Stock Value</div><div class="sum-val">रू ${totalVal.toFixed(0)}</div></div>
+    <div class="sum-box" style="border-color:#fca5a5;background:#fff7ed;"><div class="sum-label" style="color:#dc2626;">Low Stock Items</div><div class="sum-val" style="color:#dc2626;">${allProds.filter(p=>p.stock<=p.minStock).length}</div></div>
+  </div>
+  ${prods.length===0?`<div style="text-align:center;padding:30px;color:#6b7280;">No ${filter==='low'?'low stock':''} products found</div>`:`
+  <table>
+    <thead><tr>
+      <th>Barcode</th><th>Product Name</th><th style="text-align:center;">Stock</th>
+      <th style="text-align:center;">Sub-unit</th><th style="text-align:right;">Buy Price</th>
+      <th style="text-align:right;">Sell Price</th><th style="text-align:right;">Stock Value</th>
+      <th style="text-align:center;">Status</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr style="background:#f1f5f9;font-weight:700;">
+      <td colspan="6" style="padding:8px 10px;border-top:2px solid #1a56db;">TOTAL (${prods.length} products)</td>
+      <td style="text-align:right;padding:8px 10px;border-top:2px solid #1a56db;color:#1a56db;">रू ${totalVal.toFixed(2)}</td>
+      <td style="border-top:2px solid #1a56db;"></td>
+    </tr></tfoot>
+  </table>`}
+  <script>setTimeout(()=>window.print(),400);<\/script></body></html>`);
 }
 
 // ===================== CUSTOMERS =====================
@@ -2332,21 +2408,46 @@ function addScannedToPurchase(prodId) {
 }
 
 // ===================== PRINT =====================
-function printHTML(html,title){
-  const shop=DB.obj('shop',{name:'My Shop',address:'',phone:'',pan:''});
-  const w=window.open('','_blank','width=900,height=750');
-  w.document.write(`<!DOCTYPE html><html><head><title>${title||''}</title><style>
-    body{font-family:'Segoe UI',sans-serif;padding:20px;font-size:13px;color:#1f2937;}
-    table{border-collapse:collapse;width:100%;}th,td{border:1px solid #d1d5db;padding:6px 9px;text-align:left;}th{background:#f9fafb;font-weight:600;}
-    h2{color:#1a56db;margin-bottom:6px;}h3{margin:14px 0 6px;}hr{border:none;border-top:1px solid #e5e7eb;margin:10px 0;}
-    .hdr{text-align:center;border-bottom:2px solid #1a56db;padding-bottom:10px;margin-bottom:14px;}
-    @media print{button{display:none;}.no-print{display:none;}}
-  </style></head><body>
-  <div class="hdr"><div style="font-size:18px;font-weight:700;color:#1a56db;">${shop.name||'My Shop'}</div>
-  <div style="color:#6b7280;font-size:12px;">${[shop.address,shop.phone?'Ph: '+shop.phone:'',shop.pan?'PAN: '+shop.pan:''].filter(Boolean).join(' | ')}</div>
-  <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Printed: ${new Date().toLocaleString()} | BS: ${npDate().full}</div></div>
-  ${html}<script>setTimeout(()=>window.print(),400);<\/script></body></html>`);
+// Safe print helper — handles popup blocker gracefully
+function openPrintWindow(htmlContent, title) {
+  const w = window.open('', '_blank', 'width=900,height=800');
+  if (!w || w.closed || typeof w.document === 'undefined') {
+    // Popup was blocked — fallback: create a blob URL and open it
+    try {
+      const blob = new Blob([htmlContent], {type:'text/html'});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 3000);
+    } catch(e) {
+      alert('Pop-up blocked! Please allow pop-ups for this page in your browser settings, then try again.');
+    }
+    return;
+  }
+  w.document.write(htmlContent);
   w.document.close();
+}
+function printHTML(html, title){
+  const shop = DB.obj('shop', {name:'My Shop',address:'',phone:'',pan:''});
+  const fullHtml = `<!DOCTYPE html><html><head><title>${title||''}</title><style>
+    *{box-sizing:border-box;}
+    body{font-family:'Segoe UI',Arial,sans-serif;padding:20px;font-size:13px;color:#1f2937;}
+    table{border-collapse:collapse;width:100%;}
+    th,td{border:1px solid #d1d5db;padding:7px 10px;text-align:left;}
+    th{background:#1a56db;color:#fff;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+    h2{color:#1a56db;margin-bottom:8px;}h3{margin:14px 0 6px;}
+    .hdr{text-align:center;border-bottom:2px solid #1a56db;padding-bottom:10px;margin-bottom:16px;}
+    @media print{button,.no-print{display:none;}@page{margin:12mm;}}
+  </style></head><body>
+  <div class="hdr">
+    <div style="font-size:18px;font-weight:700;color:#1a56db;">${shop.name||'My Shop'}</div>
+    <div style="color:#6b7280;font-size:12px;">${[shop.address,shop.phone?'Ph: '+shop.phone:'',shop.pan?'PAN: '+shop.pan:''].filter(Boolean).join(' | ')}</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Printed: ${new Date().toLocaleDateString()} | BS: ${npDate().full}</div>
+  </div>
+  ${html}<script>setTimeout(()=>window.print(),400);<\/script></body></html>`;
+  openPrintWindow(fullHtml, title);
 }
 
 // ===================== SAMPLE DATA =====================
