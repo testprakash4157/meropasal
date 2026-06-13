@@ -9,7 +9,7 @@
      Steps: script.google.com → Deploy → Web App → Copy URL
      ═══════════════════════════════════════════════════════════ -->
 <script>
-  window.GS_URL = "https://script.google.com/macros/s/AKfycbwABTxHoNhPOk42nZECcyBbakpFUsZVfQtmyri1wrAvN4GOjCvLAs_0mvR1_9KQ7Pqz/exec";
+  window.GS_URL = "https://script.google.com/macros/s/AKfycbwbfiWr3SxSyfve3ALBrgK8Nx-AJfXry2b3G9uSaUoH9xbH_OiY2amDWr0NPgm1OcY/exec";
   //              ↑ Replace with your actual Web App URL
 </script>
 <!-- ZXing barcode scanner -->
@@ -1135,40 +1135,85 @@ const DB = {
   }
 };
 
-// ── Push one key to Google Sheets (fire-and-forget POST) ──
+// ── Push one key to Google Sheets via GET (CORS-safe) ──
 function gsPush(key, value) {
-  const url = getGsUrl(); if (!url || url.includes('YOUR_SCRIPT')) return;
-  const body = JSON.stringify({ action: 'set', key, value });
-  fetch(url, { method:'POST', body })
-    .then(r => r.json())
-    .then(d => { if (d.status !== 'ok') console.warn('GS push error:', d); })
-    .catch(() => {}); // silent fail — local data is safe
+  const url = getGsUrl();
+  if (!url || url.includes('YOUR_SCRIPT')) return;
+  try {
+    const encoded = encodeURIComponent(JSON.stringify(value));
+    const fullUrl = url + '?action=set&key=' + encodeURIComponent(key) + '&value=' + encoded + '&cb=' + Date.now();
+    // Use no-cors POST as primary (for large payloads)
+    fetch(url, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'set', key, value })
+    }).catch(() => {
+      // fallback: GET (for smaller payloads)
+      if (encoded.length < 8000) {
+        fetch(fullUrl).catch(() => {});
+      }
+    });
+  } catch(e) {}
+}
+
+// ── Full backup — POST all data at once ──
+async function gsFullBackup() {
+  const url = getGsUrl();
+  if (!url || url.includes('YOUR_SCRIPT')) return false;
+  const data = {
+    action: 'fullBackup',
+    shop: DB.obj('shop'), products: DB.get('products'),
+    customers: DB.get('customers'), vendors: DB.get('vendors'),
+    sales: DB.get('sales'), purchases: DB.get('purchases'),
+    payments: DB.get('payments'), 'ie-entries': DB.get('ie-entries'),
+    'sales-returns': DB.get('sales-returns'),
+    'purchase-returns': DB.get('purchase-returns'),
+    notes: DB.get('notes'), creds: DB.obj('creds'),
+    timestamp: new Date().toISOString()
+  };
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(data)
+    });
+    const d = await res.json();
+    return d.status === 'ok' ? d : false;
+  } catch(e) {
+    console.warn('Full backup error:', e);
+    return false;
+  }
 }
 
 // ── Pull ALL data from Google Sheets → overwrite localStorage ──
 async function gsPullAll() {
   const url = getGsUrl();
   if (!url || url.includes('YOUR_SCRIPT')) {
-    showSyncBanner('⚠️ Set your Web App URL in Settings → Live Database', 4000); return false;
+    showSyncBanner('⚠️ Set your Web App URL in Settings → Live Database', 4000);
+    return false;
   }
   showSyncBanner('⏳ Pulling latest data from Google Sheets...');
   try {
-    const res = await fetch(url + '?action=getAll&cb=' + Date.now());
+    const res = await fetch(url + '?action=getAll&cb=' + Date.now(), {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    if (data.status !== 'ok') throw new Error(data.message || 'Unknown error');
+    if (data.status !== 'ok') throw new Error(data.message || 'Error from server');
     const store = data.store || {};
     let count = 0;
     Object.keys(store).forEach(k => {
       localStorage.setItem('sms2_' + k, JSON.stringify(store[k]));
       count++;
     });
-    showSyncBanner('✅ Synced ' + count + ' tables from Google Sheets!', 3000);
+    showSyncBanner('✅ Synced ' + count + ' table(s) from Google Sheets!', 3000);
     gsLiveUpdateBadge(true);
     return true;
   } catch(e) {
-    showSyncBanner('❌ Sync failed: ' + e.message + ' — using local data', 4000);
-    console.error('gsPullAll error:', e);
+    showSyncBanner('❌ Pull failed: ' + e.message, 4000);
+    console.error('gsPullAll:', e);
     return false;
   }
 }
@@ -1232,17 +1277,29 @@ function gsLiveSaveURL() {
   window.GS_URL = url;
   const statusEl = document.getElementById('gs-live-status');
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--warning);">⏳ Testing connection...</span>';
-  // Test connection
+  // Test with ping GET
   fetch(url + '?action=ping&cb=' + Date.now())
     .then(r => r.json())
-    .then(d => {
+    .then(async d => {
       gsLiveUpdateBadge(true);
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✅ Connected! Sheet: <a href="'+d.url+'" target="_blank" style="color:var(--success);">Open Google Sheet →</a></span>';
-      gsPullAll(); // pull any existing data
+      const sheetLink = d.url ? ` <a href="${d.url}" target="_blank" style="color:var(--success);font-weight:700;">Open Sheet →</a>` : '';
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--success);">✅ Connected!${sheetLink}</span>`;
+      // Auto pull existing data first
+      const pulled = await gsPullAll();
+      if (pulled) {
+        refreshAllDropdowns(); renderDashboard();
+      }
+      // Then push all local data to sheet
+      if (statusEl) statusEl.innerHTML += '<br><span style="color:var(--warning);">⏳ Sending local data to sheet...</span>';
+      const res = await gsFullBackup();
+      if (res) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--success);">✅ Connected & synced! ${sheetLink}</span>`;
+      }
     })
     .catch(e => {
       gsLiveUpdateBadge(false);
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">❌ Failed: '+e.message+' — Check URL & deployment (set access to Anyone)</span>';
+      if (statusEl) statusEl.innerHTML = `<span style="color:var(--danger);">❌ Connection failed: ${e.message}<br>
+        <small>Make sure deployment is set to <strong>"Anyone"</strong> and re-deploy as New Deployment.</small></span>`;
     });
 }
 function gsLiveUpdateBadge(ok) {
@@ -2330,29 +2387,20 @@ function changeCreds(){
   DB.set('creds',{u,p});alert('Updated! Please login again.');doLogout();
 }
 function getGSheetURL(){ return getGsUrl(); }
-function backupSheets(){
+async function backupSheets(){
   const url = getGsUrl();
   if(!url || url.includes('YOUR_SCRIPT')){
     alert('Set your Web App URL in Settings → Live Database first!'); return;
   }
   const statusEl = document.getElementById('backup-status');
   if(statusEl) statusEl.innerHTML='<span style="color:var(--warning);">⏳ Sending full backup...</span>';
-  const data={
-    action:'fullBackup',
-    shop:DB.obj('shop'), products:DB.get('products'), customers:DB.get('customers'),
-    vendors:DB.get('vendors'), sales:DB.get('sales'), purchases:DB.get('purchases'),
-    payments:DB.get('payments'), 'ie-entries':DB.get('ie-entries'),
-    timestamp:new Date().toISOString()
-  };
-  fetch(url, {method:'POST', body:JSON.stringify(data)})
-    .then(r=>r.json())
-    .then(d=>{
-      const msg = d.status==='ok'
-        ? `✅ Backup done at ${new Date().toLocaleTimeString()} — <a href="${d.url}" target="_blank">Open Sheet →</a>`
-        : `❌ Error: ${d.message}`;
-      if(statusEl) statusEl.innerHTML=`<span style="color:${d.status==='ok'?'var(--success)':'var(--danger)'};">${msg}</span>`;
-    })
-    .catch(e=>{ if(statusEl) statusEl.innerHTML=`<span style="color:var(--danger);">❌ ${e.message}</span>`; });
+  const result = await gsFullBackup();
+  if(result){
+    const link = result.url ? `<a href="${result.url}" target="_blank" style="color:var(--success);font-weight:700;">Open Google Sheet →</a>` : '';
+    if(statusEl) statusEl.innerHTML=`<span style="color:var(--success);">✅ Backup complete at ${new Date().toLocaleTimeString()} ${link}</span>`;
+  } else {
+    if(statusEl) statusEl.innerHTML='<span style="color:var(--danger);">❌ Backup failed. Check URL and re-deploy as Web App.</span>';
+  }
 }
 function showSheetsGuide(){ showGsLiveGuide(); }
 function exportData(){
