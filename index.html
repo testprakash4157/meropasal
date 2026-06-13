@@ -307,10 +307,12 @@ td:nth-child(n+3){font-family:'Roboto Condensed',Arial,sans-serif;}
       <div class="nsec">बिक्री / Sales</div>
       <a onclick="showPage('sales')" id="nav-sales"><span class="ni">🧾</span>Sales Invoice</a>
       <a onclick="showPage('sales-list')" id="nav-sales-list"><span class="ni">📋</span>Sales List</a>
+      <a onclick="showPage('sales-return')" id="nav-sales-return"><span class="ni">↩️</span>Sales Return</a>
       <a onclick="showPage('daily-report')" id="nav-daily-report"><span class="ni">📅</span>Daily Report</a>
       <div class="nsec">खरिद / Purchase</div>
       <a onclick="showPage('purchase')" id="nav-purchase"><span class="ni">📦</span>Purchase Entry</a>
       <a onclick="showPage('purchase-list')" id="nav-purchase-list"><span class="ni">📋</span>Purchase List</a>
+      <a onclick="showPage('purchase-return')" id="nav-purchase-return"><span class="ni">↩️</span>Purchase Return</a>
       <div class="nsec">स्टक / Inventory</div>
       <a onclick="showPage('products')" id="nav-products"><span class="ni">🏷️</span>Products</a>
       <a onclick="showPage('stock')" id="nav-stock"><span class="ni">📊</span>Stock Report</a>
@@ -648,6 +650,123 @@ td:nth-child(n+3){font-family:'Roboto Condensed',Arial,sans-serif;}
           </div>
         </div>
         <div id="ledger-content"><div style="padding:40px;text-align:center;color:var(--g400);">Select a party to view ledger</div></div>
+      </div>
+    </div>
+
+    <!-- SALES RETURN -->
+    <div class="page" id="page-sales-return">
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-header"><h2>↩️ Sales Return (Credit Note)</h2></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="field"><label>Credit Note No</label><input id="sr-no" readonly style="background:#f0f0f0;font-weight:700;"></div>
+            <div class="field"><label>Original Invoice No</label>
+              <div style="display:flex;gap:6px;">
+                <input id="sr-inv-ref" placeholder="INV-0001" style="flex:1;">
+                <button class="btn btn-primary btn-sm" onclick="srLookupInvoice()">🔍 Find</button>
+              </div>
+            </div>
+            <div class="field"><label>Customer</label><input id="sr-cust-name" readonly style="background:#f0f0f0;"></div>
+            <div class="field"><label>Return Date</label><input type="date" id="sr-date"></div>
+            <div class="field"><label>BS Date</label><input id="sr-bs-date" readonly style="background:#f0f0f0;"></div>
+            <div class="field"><label>Reason</label>
+              <select id="sr-reason">
+                <option>Defective / खराब</option>
+                <option>Wrong Item / गलत सामान</option>
+                <option>Customer Cancelled</option>
+                <option>Excess Quantity</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+          <!-- Invoice items to return -->
+          <div id="sr-orig-items" style="display:none;">
+            <p style="font-size:11px;font-weight:700;color:#1a4a8a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">📋 Original Invoice Items — Select items to return:</p>
+            <div class="tw" style="margin-bottom:10px;">
+              <table id="sr-items-table">
+                <thead><tr><th>✓</th><th>Product</th><th>Orig Qty</th><th>Unit</th><th>Rate</th><th>Return Qty</th><th>Return Amt</th></tr></thead>
+                <tbody id="sr-items-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="sr-totals" style="display:none;display:flex;justify-content:flex-end;margin-bottom:10px;">
+            <div class="totals-box">
+              <div class="trow"><span>Total Return Amount:</span><span id="sr-total" style="color:#dc2626;font-family:'Courier Prime',monospace;font-weight:700;">रू 0</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:10px;"><label>Note</label><input id="sr-note" placeholder="Additional note..."></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;" id="sr-actions" style="display:none;">
+            <button class="btn btn-danger" onclick="saveSalesReturn()">💾 Save Return</button>
+            <button class="btn btn-success" onclick="saveSalesReturn(true)">🖨️ Save & Print Credit Note</button>
+            <button class="btn btn-outline" onclick="clearSR()">🗑️ Clear</button>
+          </div>
+        </div>
+      </div>
+      <!-- Sales Return List -->
+      <div class="card">
+        <div class="card-header"><h2>📋 Sales Return History</h2>
+          <button class="btn btn-outline btn-sm" onclick="printSRList()">🖨️ Print</button>
+        </div>
+        <div class="tw"><table><thead><tr><th>Credit Note</th><th>Orig Invoice</th><th>Customer</th><th>Date</th><th>BS Date</th><th>Amount</th><th>Reason</th><th>Action</th></tr></thead>
+          <tbody id="sr-list-body"></tbody></table></div>
+      </div>
+    </div>
+
+    <!-- PURCHASE RETURN -->
+    <div class="page" id="page-purchase-return">
+      <div class="card" style="margin-bottom:12px;">
+        <div class="card-header"><h2>↩️ Purchase Return (Debit Note)</h2></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="field"><label>Debit Note No</label><input id="pr-no" readonly style="background:#f0f0f0;font-weight:700;"></div>
+            <div class="field"><label>Original Bill No</label>
+              <div style="display:flex;gap:6px;">
+                <input id="pr-bill-ref" placeholder="PUR-0001" style="flex:1;">
+                <button class="btn btn-primary btn-sm" onclick="prLookupBill()">🔍 Find</button>
+              </div>
+            </div>
+            <div class="field"><label>Vendor</label><input id="pr-vend-name" readonly style="background:#f0f0f0;"></div>
+            <div class="field"><label>Return Date</label><input type="date" id="pr-date"></div>
+            <div class="field"><label>BS Date</label><input id="pr-bs-date" readonly style="background:#f0f0f0;"></div>
+            <div class="field"><label>Reason</label>
+              <select id="pr-reason">
+                <option>Defective / खराब</option>
+                <option>Wrong Item / गलत सामान</option>
+                <option>Excess Quantity</option>
+                <option>Quality Issue</option>
+                <option>Other</option>
+              </select>
+            </div>
+          </div>
+          <div id="pr-orig-items" style="display:none;">
+            <p style="font-size:11px;font-weight:700;color:#1a4a8a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;">📋 Original Purchase Items — Select items to return:</p>
+            <div class="tw" style="margin-bottom:10px;">
+              <table id="pr-items-table">
+                <thead><tr><th>✓</th><th>Product</th><th>Orig Qty</th><th>Unit</th><th>Cost</th><th>Return Qty</th><th>Return Amt</th></tr></thead>
+                <tbody id="pr-items-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-bottom:10px;" id="pr-totals-wrap" style="display:none;">
+            <div class="totals-box">
+              <div class="trow"><span>Total Return Amount:</span><span id="pr-total" style="color:#dc2626;font-family:'Courier Prime',monospace;font-weight:700;">रू 0</span></div>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:10px;"><label>Note</label><input id="pr-note" placeholder="Additional note..."></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;" id="pr-actions">
+            <button class="btn btn-danger" onclick="savePurchaseReturn()">💾 Save Return</button>
+            <button class="btn btn-success" onclick="savePurchaseReturn(true)">🖨️ Save & Print Debit Note</button>
+            <button class="btn btn-outline" onclick="clearPR()">🗑️ Clear</button>
+          </div>
+        </div>
+      </div>
+      <!-- Purchase Return List -->
+      <div class="card">
+        <div class="card-header"><h2>📋 Purchase Return History</h2>
+          <button class="btn btn-outline btn-sm" onclick="printPRList()">🖨️ Print</button>
+        </div>
+        <div class="tw"><table><thead><tr><th>Debit Note</th><th>Orig Bill</th><th>Vendor</th><th>Date</th><th>BS Date</th><th>Amount</th><th>Reason</th><th>Action</th></tr></thead>
+          <tbody id="pr-list-body"></tbody></table></div>
       </div>
     </div>
 
@@ -1182,11 +1301,13 @@ function initApp() {
   updateDates();
   setInterval(updateDates, 60000);
   const today = todayStr();
-  ['inv-date','pur-date','pay-date','ie-date','rep-date'].forEach(id => {
+  ['inv-date','pur-date','pay-date','ie-date','rep-date','sr-date','pr-date'].forEach(id => {
     const el=document.getElementById(id); if(el) el.value=today;
   });
   setupDateSync('inv-date','inv-bs-date');
   setupDateSync('pur-date','pur-bs-date');
+  setupDateSync('sr-date','sr-bs-date');
+  setupDateSync('pr-date','pr-bs-date');
   ['inv-date','pur-date'].forEach(id => {
     const el=document.getElementById(id); if(el) el.dispatchEvent(new Event('change'));
   });
@@ -1216,7 +1337,10 @@ function showPage(name) {
   const pg=document.getElementById('page-'+name); if(pg) pg.classList.add('active');
   const nv=document.getElementById('nav-'+name); if(nv) nv.classList.add('active');
   const titles={dashboard:'Dashboard',sales:'Sales Invoice','sales-list':'All Sales',
-    purchase:'Purchase Entry','purchase-list':'All Purchases',products:'Products',
+    'sales-return':'Sales Return (Credit Note)',
+    purchase:'Purchase Entry','purchase-list':'All Purchases',
+    'purchase-return':'Purchase Return (Debit Note)',
+    products:'Products',
     stock:'Stock Report',customers:'Customers',vendors:'Vendors',dues:'Dues & Payments',
     ledger:'Party Ledger','daily-report':'Daily Report','income-expense':'Income & Expense',
     notes:'Notes',settings:'Settings'};
@@ -1224,6 +1348,8 @@ function showPage(name) {
   if(name==='dashboard') renderDashboard();
   if(name==='sales-list') renderSalesList();
   if(name==='purchase-list') renderPurchaseList();
+  if(name==='sales-return') { renderSRList(); setNextSRNo(); }
+  if(name==='purchase-return') { renderPRList(); setNextPRNo(); }
   if(name==='products') renderProducts();
   if(name==='stock') renderStock();
   if(name==='customers') renderCustomers();
@@ -2071,21 +2197,55 @@ function renderDailyReport(){
   const sales=DB.get('sales').filter(s=>s.date===date);
   const purs=DB.get('purchases').filter(p=>p.date===date);
   const ts=sales.reduce((a,x)=>a+x.total,0),tp=purs.reduce((a,x)=>a+x.total,0);
+  const srAll=DB.get('sales-returns').filter(r=>r.date===date);
+  const prAll=DB.get('purchase-returns').filter(r=>r.date===date);
+  const tsr=srAll.reduce((a,x)=>a+x.total,0);
+  const tpr=prAll.reduce((a,x)=>a+x.total,0);
   const np=toBS(new Date(date+'T00:00:00')).full;
   document.getElementById('daily-rep-body').innerHTML=`
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
-      <div style="background:var(--success-light);border-radius:8px;padding:12px 16px;flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;color:var(--success);text-transform:uppercase;">Sales</div><div style="font-size:20px;font-weight:700;color:var(--success);">रू ${ts.toFixed(2)}</div><div style="font-size:11px;color:var(--success);">${sales.length} invoice(s)</div></div>
-      <div style="background:var(--danger-light);border-radius:8px;padding:12px 16px;flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;color:var(--danger);text-transform:uppercase;">Purchase</div><div style="font-size:20px;font-weight:700;color:var(--danger);">रू ${tp.toFixed(2)}</div><div style="font-size:11px;color:var(--danger);">${purs.length} bill(s)</div></div>
-      <div style="background:var(--primary-light);border-radius:8px;padding:12px 16px;flex:1;min-width:120px;"><div style="font-size:10px;font-weight:700;color:var(--primary);text-transform:uppercase;">Net</div><div style="font-size:20px;font-weight:700;color:var(--primary);">रू ${(ts-tp).toFixed(2)}</div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+      <div style="background:#dcfce7;border:1px solid #86efac;border-left:3px solid #059669;border-radius:2px;padding:10px 14px;flex:1;min-width:110px;">
+        <div style="font-size:10px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:.05em;">Sales</div>
+        <div style="font-size:19px;font-weight:700;color:#065f46;font-family:'Courier Prime',monospace;">रू ${ts.toFixed(2)}</div>
+        <div style="font-size:10px;color:#059669;">${sales.length} invoice(s)</div>
+      </div>
+      <div style="background:#fff0f0;border:1px solid #fca5a5;border-left:3px solid #b91c1c;border-radius:2px;padding:10px 14px;flex:1;min-width:110px;">
+        <div style="font-size:10px;font-weight:700;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;">Sales Return</div>
+        <div style="font-size:19px;font-weight:700;color:#7f1d1d;font-family:'Courier Prime',monospace;">रू ${tsr.toFixed(2)}</div>
+        <div style="font-size:10px;color:#b91c1c;">${srAll.length} return(s)</div>
+      </div>
+      <div style="background:#fee2e2;border:1px solid #f87171;border-left:3px solid #dc2626;border-radius:2px;padding:10px 14px;flex:1;min-width:110px;">
+        <div style="font-size:10px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.05em;">Purchase</div>
+        <div style="font-size:19px;font-weight:700;color:#7f1d1d;font-family:'Courier Prime',monospace;">रू ${tp.toFixed(2)}</div>
+        <div style="font-size:10px;color:#dc2626;">${purs.length} bill(s)</div>
+      </div>
+      <div style="background:#fff7ed;border:1px solid #fcd34d;border-left:3px solid #d97706;border-radius:2px;padding:10px 14px;flex:1;min-width:110px;">
+        <div style="font-size:10px;font-weight:700;color:#d97706;text-transform:uppercase;letter-spacing:.05em;">Purchase Return</div>
+        <div style="font-size:19px;font-weight:700;color:#92400e;font-family:'Courier Prime',monospace;">रू ${tpr.toFixed(2)}</div>
+        <div style="font-size:10px;color:#d97706;">${prAll.length} return(s)</div>
+      </div>
+      <div style="background:#e0eaff;border:1px solid #93c5fd;border-left:3px solid #1a4a8a;border-radius:2px;padding:10px 14px;flex:1;min-width:110px;">
+        <div style="font-size:10px;font-weight:700;color:#1a4a8a;text-transform:uppercase;letter-spacing:.05em;">Net Sales</div>
+        <div style="font-size:19px;font-weight:700;color:#0a2a6e;font-family:'Courier Prime',monospace;">रू ${(ts-tsr-tp+tpr).toFixed(2)}</div>
+        <div style="font-size:10px;color:#1a4a8a;">After returns</div>
+      </div>
     </div>
-    <h3 style="font-size:13px;font-weight:700;margin-bottom:8px;">Sales — ${date} | BS: ${np}</h3>
+    <h3 style="font-size:12px;font-weight:700;margin-bottom:7px;color:#1a4a8a;text-transform:uppercase;letter-spacing:.05em;">🧾 Sales — ${date} | BS: ${np}</h3>
     <div class="tw" style="margin-bottom:14px;"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Amount</th><th>Payment</th></tr></thead><tbody>
-    ${sales.length?sales.map(s=>`<tr><td>${s.invNo}</td><td>${s.custName}</td><td>रू ${s.total.toFixed(2)}</td><td>${s.payment}</td></tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--g400);padding:16px;">No sales</td></tr>'}
+    ${sales.length?sales.map(s=>`<tr><td>${s.invNo}</td><td>${s.custName}</td><td style="font-family:'Courier Prime',monospace;">रू ${s.total.toFixed(2)}</td><td>${s.payment}</td></tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:14px;">No sales</td></tr>'}
     </tbody></table></div>
-    <h3 style="font-size:13px;font-weight:700;margin-bottom:8px;">Purchases — ${date}</h3>
-    <div class="tw"><table><thead><tr><th>Bill No</th><th>Vendor</th><th>Amount</th><th>Payment</th></tr></thead><tbody>
-    ${purs.length?purs.map(p=>`<tr><td>${p.billNo}</td><td>${p.vendName}</td><td>रू ${p.total.toFixed(2)}</td><td>${p.payment}</td></tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:var(--g400);padding:16px;">No purchases</td></tr>'}
-    </tbody></table></div>`;
+    ${srAll.length?`<h3 style="font-size:12px;font-weight:700;margin-bottom:7px;color:#b91c1c;text-transform:uppercase;letter-spacing:.05em;">↩️ Sales Returns</h3>
+    <div class="tw" style="margin-bottom:14px;"><table><thead><tr><th>Credit Note</th><th>Invoice</th><th>Customer</th><th>Amount</th><th>Reason</th></tr></thead><tbody>
+    ${srAll.map(r=>`<tr><td>${r.crNo}</td><td>${r.origInvNo}</td><td>${r.custName}</td><td style="font-family:'Courier Prime',monospace;color:#b91c1c;">रू ${r.total.toFixed(2)}</td><td>${r.reason}</td></tr>`).join('')}
+    </tbody></table></div>`:''}
+    <h3 style="font-size:12px;font-weight:700;margin-bottom:7px;color:#1a4a8a;text-transform:uppercase;letter-spacing:.05em;">📦 Purchases — ${date}</h3>
+    <div class="tw" style="margin-bottom:14px;"><table><thead><tr><th>Bill No</th><th>Vendor</th><th>Amount</th><th>Payment</th></tr></thead><tbody>
+    ${purs.length?purs.map(p=>`<tr><td>${p.billNo}</td><td>${p.vendName}</td><td style="font-family:'Courier Prime',monospace;">रू ${p.total.toFixed(2)}</td><td>${p.payment}</td></tr>`).join(''):'<tr><td colspan="4" style="text-align:center;color:#aaa;padding:14px;">No purchases</td></tr>'}
+    </tbody></table></div>
+    ${prAll.length?`<h3 style="font-size:12px;font-weight:700;margin-bottom:7px;color:#d97706;text-transform:uppercase;letter-spacing:.05em;">↩️ Purchase Returns</h3>
+    <div class="tw"><table><thead><tr><th>Debit Note</th><th>Bill</th><th>Vendor</th><th>Amount</th><th>Reason</th></tr></thead><tbody>
+    ${prAll.map(r=>`<tr><td>${r.drNo}</td><td>${r.origBillNo}</td><td>${r.vendName}</td><td style="font-family:'Courier Prime',monospace;color:#d97706;">रू ${r.total.toFixed(2)}</td><td>${r.reason}</td></tr>`).join('')}
+    </tbody></table></div>`:''}`;
 }
 function printDailyReport(){
   const date=document.getElementById('rep-date').value;if(!date){alert('Select date');return;}
@@ -2218,6 +2378,405 @@ function clearAllData(){
 // autoBackup is now handled automatically by DB.set() → gsPush()
 // These calls are kept for compatibility but are no-ops
 function autoBackup(record, type) { /* handled by DB.set */ }
+
+// ===================== SALES RETURN =====================
+let _srRef = null; // original sale being returned
+
+function setNextSRNo() {
+  const returns = DB.get('sales-returns');
+  const n = returns.length ? parseInt(returns[returns.length-1].crNo.replace(/\D/g,''))||returns.length : 0;
+  const el = document.getElementById('sr-no'); if(el) el.value = 'CR-'+String(n+1).padStart(4,'0');
+}
+
+function srLookupInvoice() {
+  const ref = (document.getElementById('sr-inv-ref')?.value||'').trim().toUpperCase();
+  if(!ref){ alert('Enter invoice number'); return; }
+  const sale = DB.get('sales').find(s=>s.invNo.toUpperCase()===ref);
+  if(!sale){ alert('Invoice "'+ref+'" not found. Check invoice number.'); return; }
+  _srRef = sale;
+  document.getElementById('sr-cust-name').value = sale.custName||'Walk-in';
+  // Render items
+  const tbody = document.getElementById('sr-items-body');
+  tbody.innerHTML = (sale.items||[]).map((it,i)=>`<tr>
+    <td><input type="checkbox" class="sr-chk" data-idx="${i}" onchange="calcSRTotal()" checked></td>
+    <td>${it.prodName}</td>
+    <td style="font-family:'Courier Prime',monospace;">${it.qty}</td>
+    <td>${it.unit||''}</td>
+    <td style="font-family:'Courier Prime',monospace;">रू ${it.price.toFixed(2)}</td>
+    <td><input type="number" class="sr-ret-qty" data-idx="${i}" data-max="${it.qty}" data-price="${it.price}" data-disc="${it.disc||0}" value="${it.qty}" min="0" max="${it.qty}" step="0.01" oninput="calcSRTotal()" style="width:80px;padding:3px 6px;border:1px solid #999;border-radius:1px;font-family:'Courier Prime',monospace;background:#fffde8;"></td>
+    <td id="sr-row-amt-${i}" style="font-family:'Courier Prime',monospace;font-weight:700;color:#dc2626;">रू ${it.total.toFixed(2)}</td>
+  </tr>`).join('');
+  document.getElementById('sr-orig-items').style.display='block';
+  document.getElementById('sr-totals').style.display='flex';
+  document.getElementById('sr-actions').style.display='flex';
+  calcSRTotal();
+}
+
+function calcSRTotal() {
+  const sale = _srRef; if(!sale) return;
+  let total = 0;
+  document.querySelectorAll('.sr-chk').forEach(chk => {
+    const i = chk.dataset.idx;
+    const qtyEl = document.querySelector(`.sr-ret-qty[data-idx="${i}"]`);
+    const amtEl = document.getElementById('sr-row-amt-'+i);
+    if(!qtyEl||!amtEl) return;
+    const qty = parseFloat(qtyEl.value)||0;
+    const price = parseFloat(qtyEl.dataset.price)||0;
+    const disc = parseFloat(qtyEl.dataset.disc)||0;
+    const amt = chk.checked ? qty * price * (1-disc/100) : 0;
+    amtEl.textContent = 'रू '+amt.toFixed(2);
+    total += amt;
+  });
+  const el = document.getElementById('sr-total'); if(el) el.textContent='रू '+total.toFixed(2);
+}
+
+function getSRItems() {
+  const items = [];
+  document.querySelectorAll('.sr-chk').forEach(chk => {
+    if(!chk.checked) return;
+    const i = chk.dataset.idx;
+    const origItem = _srRef.items[i];
+    const qtyEl = document.querySelector(`.sr-ret-qty[data-idx="${i}"]`);
+    const qty = parseFloat(qtyEl?.value)||0;
+    if(qty<=0) return;
+    const price = parseFloat(qtyEl.dataset.price)||0;
+    const disc = parseFloat(qtyEl.dataset.disc)||0;
+    items.push({...origItem, retQty:qty, retTotal:qty*price*(1-disc/100)});
+  });
+  return items;
+}
+
+function saveSalesReturn(andPrint=false) {
+  if(!_srRef){ alert('Look up an invoice first'); return; }
+  const items = getSRItems();
+  if(!items.length){ alert('Select at least one item to return'); return; }
+  const total = items.reduce((s,i)=>s+i.retTotal,0);
+  const returns = DB.get('sales-returns');
+  const date = document.getElementById('sr-date').value;
+  const bsDate = toBS(new Date(date+'T00:00:00')).full;
+  const ret = {
+    id:Date.now(), crNo:document.getElementById('sr-no').value,
+    origInvNo:_srRef.invNo, origId:_srRef.id,
+    custId:_srRef.custId, custName:_srRef.custName,
+    date, bsDate, reason:document.getElementById('sr-reason').value,
+    note:document.getElementById('sr-note').value,
+    items, total
+  };
+  returns.push(ret); DB.set('sales-returns', returns);
+  // Restore stock
+  const prods = DB.get('products');
+  items.forEach(it=>{
+    const p = prods.find(p=>p.id==it.prodId); if(!p) return;
+    let qtyMain = it.retQty;
+    if(p.subUnit && it.unit===p.subUnit && p.conv>0) qtyMain = it.retQty/p.conv;
+    p.stock = (parseFloat(p.stock)||0) + qtyMain;
+  });
+  DB.set('products', prods);
+  if(andPrint) printCreditNote(ret);
+  clearSR(); renderSRList(); setNextSRNo();
+  alert('Sales Return saved! Stock restored. / बिक्री फिर्ता सुरक्षित!');
+}
+
+function clearSR() {
+  _srRef=null;
+  const el1=document.getElementById('sr-inv-ref'); if(el1) el1.value='';
+  const el2=document.getElementById('sr-cust-name'); if(el2) el2.value='';
+  const el3=document.getElementById('sr-note'); if(el3) el3.value='';
+  const el4=document.getElementById('sr-items-body'); if(el4) el4.innerHTML='';
+  const el5=document.getElementById('sr-total'); if(el5) el5.textContent='रू 0';
+  const el6=document.getElementById('sr-orig-items'); if(el6) el6.style.display='none';
+  const el7=document.getElementById('sr-totals'); if(el7) el7.style.display='none';
+  const el8=document.getElementById('sr-actions'); if(el8) el8.style.display='none';
+}
+
+function renderSRList() {
+  const returns = DB.get('sales-returns');
+  const tbody = document.getElementById('sr-list-body');
+  if(!tbody) return;
+  tbody.innerHTML = [...returns].reverse().map(r=>`<tr>
+    <td><strong>${r.crNo}</strong></td><td>${r.origInvNo}</td><td>${r.custName}</td>
+    <td>${r.date}</td><td>${r.bsDate||''}</td>
+    <td style="color:#dc2626;font-weight:700;font-family:'Courier Prime',monospace;">रू ${r.total.toFixed(2)}</td>
+    <td><span class="badge bw">${r.reason.split('/')[0].trim()}</span></td>
+    <td><button class="btn btn-outline btn-xs" onclick="printCreditNote(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(r))}')))" >Print</button>
+        <button class="btn btn-danger btn-xs" onclick="delSR(${r.id})">Del</button></td>
+  </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;padding:20px;color:#aaa;">No sales returns yet</td></tr>';
+}
+
+function delSR(id){
+  if(!confirm('Delete this return? Stock will NOT be adjusted back.')) return;
+  DB.set('sales-returns', DB.get('sales-returns').filter(r=>r.id!=id));
+  renderSRList();
+}
+
+function printCreditNote(ret) {
+  const shop = DB.obj('shop',{name:'My Shop',address:'',phone:'',pan:''});
+  const words = amountInWords(ret.total);
+  const html = `<!DOCTYPE html><html><head><title>Credit Note ${ret.crNo}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Roboto Condensed',Arial,sans-serif;padding:18px 22px;font-size:12.5px;color:#1a1a1a;background:#fff;}
+    table{border-collapse:collapse;width:100%;}
+    th{background:#b91c1c;color:#fff;padding:7px 9px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;border:1px solid #991b1b;}
+    td{padding:6px 9px;border:1px solid #e2e8f0;}
+    tr:nth-child(even) td{background:#fff5f5;}
+    @media print{button{display:none;}@page{size:A4;margin:10mm;}}
+  </style></head><body>
+  <div style="text-align:center;border-bottom:3px solid #b91c1c;padding-bottom:10px;margin-bottom:14px;">
+    <div style="font-size:20px;font-weight:700;color:#b91c1c;">${shop.name||'My Shop'}</div>
+    <div style="font-size:11px;color:#6b7280;">${[shop.address,shop.phone?'Ph: '+shop.phone:'',shop.pan?'PAN: '+shop.pan:''].filter(Boolean).join(' | ')}</div>
+    <div style="font-size:14px;font-weight:700;margin-top:6px;letter-spacing:.06em;">CREDIT NOTE / बिक्री फिर्ता</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:14px;font-size:12px;gap:14px;">
+    <div style="background:#fff5f5;border-left:3px solid #b91c1c;padding:9px 13px;flex:1;">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">CREDIT TO</div>
+      <strong style="font-size:13px;">${ret.custName}</strong><br>
+    </div>
+    <div style="text-align:right;background:#fff5f5;border-right:3px solid #b91c1c;padding:9px 13px;min-width:180px;">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">NOTE DETAILS</div>
+      <b>Credit Note:</b> ${ret.crNo}<br>
+      <b>Against Invoice:</b> ${ret.origInvNo}<br>
+      <b>Date (AD):</b> ${ret.date}<br>
+      <b>Date (BS):</b> ${ret.bsDate}<br>
+      <b>Reason:</b> ${ret.reason}
+    </div>
+  </div>
+  <table style="margin-bottom:12px;">
+    <thead><tr><th>#</th><th>Product</th><th>Return Qty</th><th>Unit</th><th>Rate</th><th>Disc%</th><th>Amount</th></tr></thead>
+    <tbody>${ret.items.map((it,i)=>`<tr>
+      <td style="text-align:center;color:#6b7280;">${i+1}</td>
+      <td><strong>${it.prodName}</strong></td>
+      <td style="text-align:center;font-family:'Courier Prime',monospace;font-weight:700;">${it.retQty}</td>
+      <td style="text-align:center;">${it.unit||''}</td>
+      <td style="text-align:right;font-family:'Courier Prime',monospace;">रू ${it.price.toFixed(2)}</td>
+      <td style="text-align:center;color:${it.disc?'#dc2626':'#9ca3af'};">${it.disc?it.disc+'%':'—'}</td>
+      <td style="text-align:right;font-family:'Courier Prime',monospace;font-weight:700;">रू ${it.retTotal.toFixed(2)}</td>
+    </tr>`).join('')}</tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+    <table style="font-size:12px;min-width:210px;border-collapse:collapse;">
+      <tr style="background:#b91c1c;"><td style="padding:8px 10px;font-weight:700;color:#fff;border:1px solid #991b1b;">TOTAL CREDIT:</td><td style="text-align:right;padding:8px 10px;font-weight:700;color:#fff;font-family:'Courier Prime',monospace;border:1px solid #991b1b;">रू ${ret.total.toFixed(2)}</td></tr>
+    </table>
+  </div>
+  <div style="background:#fff5f5;border:1px solid #fca5a5;border-radius:4px;padding:8px 12px;margin-bottom:10px;">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:3px;">AMOUNT IN WORDS / रकम अक्षरमा</div>
+    <div style="font-weight:700;color:#b91c1c;">${words.np}</div>
+    <div style="font-style:italic;color:#374151;font-size:11px;">${words.en}</div>
+  </div>
+  ${ret.note?`<div style="padding:7px 12px;background:#fef2f2;border:1px solid #fca5a5;font-size:12px;margin-bottom:10px;"><b>Note:</b> ${ret.note}</div>`:''}
+  <div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#9ca3af;">
+    <div>This is a computer generated Credit Note</div>
+    <div style="text-align:center;"><div style="border-top:1px solid #ccc;padding-top:4px;margin-top:20px;min-width:130px;">Authorized Signature</div></div>
+  </div>
+  <script>setTimeout(()=>window.print(),350);<\/script></body></html>`;
+  openPrintWindow(html, 'Credit Note '+ret.crNo);
+}
+
+function printSRList(){
+  const r=DB.get('sales-returns');
+  const t=r.reduce((s,x)=>s+x.total,0);
+  printHTML(`<h2>Sales Return Report</h2><table>
+    <thead><tr><th>Credit Note</th><th>Invoice</th><th>Customer</th><th>Date AD</th><th>Date BS</th><th>Amount</th><th>Reason</th></tr></thead>
+    <tbody>${r.map(x=>`<tr><td>${x.crNo}</td><td>${x.origInvNo}</td><td>${x.custName}</td><td>${x.date}</td><td>${x.bsDate||''}</td><td class="r">रू ${x.total.toFixed(2)}</td><td>${x.reason}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="5"><strong>Total</strong></td><td class="r"><strong>रू ${t.toFixed(2)}</strong></td><td></td></tr></tfoot>
+  </table>`,'Sales Return Report');
+}
+
+// ===================== PURCHASE RETURN =====================
+let _prRef = null;
+
+function setNextPRNo() {
+  const returns = DB.get('purchase-returns');
+  const n = returns.length ? parseInt(returns[returns.length-1].drNo.replace(/\D/g,''))||returns.length : 0;
+  const el = document.getElementById('pr-no'); if(el) el.value = 'DR-'+String(n+1).padStart(4,'0');
+}
+
+function prLookupBill() {
+  const ref = (document.getElementById('pr-bill-ref')?.value||'').trim().toUpperCase();
+  if(!ref){ alert('Enter bill number'); return; }
+  const pur = DB.get('purchases').find(p=>p.billNo.toUpperCase()===ref);
+  if(!pur){ alert('Bill "'+ref+'" not found. Check bill number.'); return; }
+  _prRef = pur;
+  document.getElementById('pr-vend-name').value = pur.vendName||'Unknown';
+  const tbody = document.getElementById('pr-items-body');
+  tbody.innerHTML = (pur.items||[]).map((it,i)=>`<tr>
+    <td><input type="checkbox" class="pr-chk" data-idx="${i}" onchange="calcPRTotal()" checked></td>
+    <td>${it.prodName}</td>
+    <td style="font-family:'Courier Prime',monospace;">${it.qty}</td>
+    <td>${it.unit||''}</td>
+    <td style="font-family:'Courier Prime',monospace;">रू ${it.cost.toFixed(2)}</td>
+    <td><input type="number" class="pr-ret-qty" data-idx="${i}" data-max="${it.qty}" data-cost="${it.cost}" value="${it.qty}" min="0" max="${it.qty}" step="0.01" oninput="calcPRTotal()" style="width:80px;padding:3px 6px;border:1px solid #999;border-radius:1px;font-family:'Courier Prime',monospace;background:#fffde8;"></td>
+    <td id="pr-row-amt-${i}" style="font-family:'Courier Prime',monospace;font-weight:700;color:#dc2626;">रू ${it.total.toFixed(2)}</td>
+  </tr>`).join('');
+  document.getElementById('pr-orig-items').style.display='block';
+  document.getElementById('pr-totals-wrap').style.display='flex';
+  calcPRTotal();
+}
+
+function calcPRTotal() {
+  if(!_prRef) return;
+  let total = 0;
+  document.querySelectorAll('.pr-chk').forEach(chk=>{
+    const i = chk.dataset.idx;
+    const qtyEl = document.querySelector(`.pr-ret-qty[data-idx="${i}"]`);
+    const amtEl = document.getElementById('pr-row-amt-'+i);
+    if(!qtyEl||!amtEl) return;
+    const qty = parseFloat(qtyEl.value)||0;
+    const cost = parseFloat(qtyEl.dataset.cost)||0;
+    const amt = chk.checked ? qty*cost : 0;
+    amtEl.textContent='रू '+amt.toFixed(2);
+    total+=amt;
+  });
+  const el=document.getElementById('pr-total'); if(el) el.textContent='रू '+total.toFixed(2);
+}
+
+function getPRItems() {
+  const items=[];
+  document.querySelectorAll('.pr-chk').forEach(chk=>{
+    if(!chk.checked) return;
+    const i=chk.dataset.idx;
+    const origItem=_prRef.items[i];
+    const qtyEl=document.querySelector(`.pr-ret-qty[data-idx="${i}"]`);
+    const qty=parseFloat(qtyEl?.value)||0;
+    if(qty<=0) return;
+    const cost=parseFloat(qtyEl.dataset.cost)||0;
+    items.push({...origItem, retQty:qty, retTotal:qty*cost});
+  });
+  return items;
+}
+
+function savePurchaseReturn(andPrint=false) {
+  if(!_prRef){ alert('Look up a purchase bill first'); return; }
+  const items=getPRItems();
+  if(!items.length){ alert('Select at least one item to return'); return; }
+  const total=items.reduce((s,i)=>s+i.retTotal,0);
+  const returns=DB.get('purchase-returns');
+  const date=document.getElementById('pr-date').value;
+  const bsDate=toBS(new Date(date+'T00:00:00')).full;
+  const ret={
+    id:Date.now(), drNo:document.getElementById('pr-no').value,
+    origBillNo:_prRef.billNo, origId:_prRef.id,
+    vendId:_prRef.vendId, vendName:_prRef.vendName,
+    date, bsDate, reason:document.getElementById('pr-reason').value,
+    note:document.getElementById('pr-note').value,
+    items, total
+  };
+  returns.push(ret); DB.set('purchase-returns',returns);
+  // Deduct stock
+  const prods=DB.get('products');
+  items.forEach(it=>{
+    const p=prods.find(p=>p.id==it.prodId); if(!p) return;
+    let qtyMain=it.retQty;
+    if(p.subUnit&&it.unit===p.subUnit&&p.conv>0) qtyMain=it.retQty/p.conv;
+    p.stock=Math.max(0,(parseFloat(p.stock)||0)-qtyMain);
+  });
+  DB.set('products',prods);
+  if(andPrint) printDebitNote(ret);
+  clearPR(); renderPRList(); setNextPRNo();
+  alert('Purchase Return saved! Stock adjusted. / खरिद फिर्ता सुरक्षित!');
+}
+
+function clearPR() {
+  _prRef=null;
+  ['pr-bill-ref','pr-vend-name','pr-note'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const b=document.getElementById('pr-items-body'); if(b) b.innerHTML='';
+  const t=document.getElementById('pr-total'); if(t) t.textContent='रू 0';
+  const o=document.getElementById('pr-orig-items'); if(o) o.style.display='none';
+  const w=document.getElementById('pr-totals-wrap'); if(w) w.style.display='none';
+}
+
+function renderPRList() {
+  const returns=DB.get('purchase-returns');
+  const tbody=document.getElementById('pr-list-body'); if(!tbody) return;
+  tbody.innerHTML=[...returns].reverse().map(r=>`<tr>
+    <td><strong>${r.drNo}</strong></td><td>${r.origBillNo}</td><td>${r.vendName}</td>
+    <td>${r.date}</td><td>${r.bsDate||''}</td>
+    <td style="color:#dc2626;font-weight:700;font-family:'Courier Prime',monospace;">रू ${r.total.toFixed(2)}</td>
+    <td><span class="badge bw">${r.reason.split('/')[0].trim()}</span></td>
+    <td><button class="btn btn-outline btn-xs" onclick="printDebitNote(JSON.parse(decodeURIComponent('${encodeURIComponent(JSON.stringify(r))}')))" >Print</button>
+        <button class="btn btn-danger btn-xs" onclick="delPR(${r.id})">Del</button></td>
+  </tr>`).join('')||'<tr><td colspan="8" style="text-align:center;padding:20px;color:#aaa;">No purchase returns yet</td></tr>';
+}
+
+function delPR(id){
+  if(!confirm('Delete this return? Stock will NOT be adjusted back.')) return;
+  DB.set('purchase-returns',DB.get('purchase-returns').filter(r=>r.id!=id));
+  renderPRList();
+}
+
+function printDebitNote(ret){
+  const shop=DB.obj('shop',{name:'My Shop',address:'',phone:'',pan:''});
+  const words=amountInWords(ret.total);
+  const html=`<!DOCTYPE html><html><head><title>Debit Note ${ret.drNo}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:'Roboto Condensed',Arial,sans-serif;padding:18px 22px;font-size:12.5px;color:#1a1a1a;background:#fff;}
+    table{border-collapse:collapse;width:100%;}
+    th{background:#1a4a8a;color:#fff;padding:7px 9px;font-size:11px;font-weight:700;text-transform:uppercase;border:1px solid #0f3470;}
+    td{padding:6px 9px;border:1px solid #e2e8f0;}
+    tr:nth-child(even) td{background:#f0f5ff;}
+    @media print{button{display:none;}@page{size:A4;margin:10mm;}}
+  </style></head><body>
+  <div style="text-align:center;border-bottom:3px solid #1a4a8a;padding-bottom:10px;margin-bottom:14px;">
+    <div style="font-size:20px;font-weight:700;color:#1a4a8a;">${shop.name||'My Shop'}</div>
+    <div style="font-size:11px;color:#6b7280;">${[shop.address,shop.phone?'Ph: '+shop.phone:'',shop.pan?'PAN: '+shop.pan:''].filter(Boolean).join(' | ')}</div>
+    <div style="font-size:14px;font-weight:700;margin-top:6px;letter-spacing:.06em;">DEBIT NOTE / खरिद फिर्ता</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:14px;font-size:12px;gap:14px;">
+    <div style="background:#f0f5ff;border-left:3px solid #1a4a8a;padding:9px 13px;flex:1;">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">RETURN TO VENDOR</div>
+      <strong style="font-size:13px;">${ret.vendName}</strong>
+    </div>
+    <div style="text-align:right;background:#f0f5ff;border-right:3px solid #1a4a8a;padding:9px 13px;min-width:180px;">
+      <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:4px;">NOTE DETAILS</div>
+      <b>Debit Note:</b> ${ret.drNo}<br>
+      <b>Against Bill:</b> ${ret.origBillNo}<br>
+      <b>Date (AD):</b> ${ret.date}<br>
+      <b>Date (BS):</b> ${ret.bsDate}<br>
+      <b>Reason:</b> ${ret.reason}
+    </div>
+  </div>
+  <table style="margin-bottom:12px;">
+    <thead><tr><th>#</th><th>Product</th><th>Return Qty</th><th>Unit</th><th>Cost</th><th>Amount</th></tr></thead>
+    <tbody>${ret.items.map((it,i)=>`<tr>
+      <td style="text-align:center;color:#6b7280;">${i+1}</td>
+      <td><strong>${it.prodName}</strong></td>
+      <td style="text-align:center;font-family:'Courier Prime',monospace;font-weight:700;">${it.retQty}</td>
+      <td style="text-align:center;">${it.unit||''}</td>
+      <td style="text-align:right;font-family:'Courier Prime',monospace;">रू ${it.cost.toFixed(2)}</td>
+      <td style="text-align:right;font-family:'Courier Prime',monospace;font-weight:700;">रू ${it.retTotal.toFixed(2)}</td>
+    </tr>`).join('')}</tbody>
+  </table>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+    <table style="font-size:12px;min-width:210px;border-collapse:collapse;">
+      <tr style="background:#1a4a8a;"><td style="padding:8px 10px;font-weight:700;color:#fff;border:1px solid #0f3470;">TOTAL DEBIT:</td><td style="text-align:right;padding:8px 10px;font-weight:700;color:#fff;font-family:'Courier Prime',monospace;border:1px solid #0f3470;">रू ${ret.total.toFixed(2)}</td></tr>
+    </table>
+  </div>
+  <div style="background:#f0f5ff;border:1px solid #93c5fd;border-radius:4px;padding:8px 12px;margin-bottom:10px;">
+    <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#9ca3af;margin-bottom:3px;">AMOUNT IN WORDS / रकम अक्षरमा</div>
+    <div style="font-weight:700;color:#1a4a8a;">${words.np}</div>
+    <div style="font-style:italic;color:#374151;font-size:11px;">${words.en}</div>
+  </div>
+  ${ret.note?`<div style="padding:7px 12px;background:#f0f5ff;border:1px solid #93c5fd;font-size:12px;margin-bottom:10px;"><b>Note:</b> ${ret.note}</div>`:''}
+  <div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:10px;border-top:1px dashed #e2e8f0;font-size:11px;color:#9ca3af;">
+    <div>This is a computer generated Debit Note</div>
+    <div style="text-align:center;"><div style="border-top:1px solid #ccc;padding-top:4px;margin-top:20px;min-width:130px;">Authorized Signature</div></div>
+  </div>
+  <script>setTimeout(()=>window.print(),350);<\/script></body></html>`;
+  openPrintWindow(html,'Debit Note '+ret.drNo);
+}
+
+function printPRList(){
+  const r=DB.get('purchase-returns');
+  const t=r.reduce((s,x)=>s+x.total,0);
+  printHTML(`<h2>Purchase Return Report</h2><table>
+    <thead><tr><th>Debit Note</th><th>Bill</th><th>Vendor</th><th>Date AD</th><th>Date BS</th><th class="r">Amount</th><th>Reason</th></tr></thead>
+    <tbody>${r.map(x=>`<tr><td>${x.drNo}</td><td>${x.origBillNo}</td><td>${x.vendName}</td><td>${x.date}</td><td>${x.bsDate||''}</td><td class="r">रू ${x.total.toFixed(2)}</td><td>${x.reason}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="5"><strong>Total</strong></td><td class="r"><strong>रू ${t.toFixed(2)}</strong></td><td></td></tr></tfoot>
+  </table>`,'Purchase Return Report');
+}
 
 // ===================== DASHBOARD =====================
 function renderDashboard(){
