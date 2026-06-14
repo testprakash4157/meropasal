@@ -9,7 +9,7 @@
      Steps: script.google.com → Deploy → Web App → Copy URL
      ═══════════════════════════════════════════════════════════ -->
 <script>
-  window.GS_URL = "https://script.google.com/macros/s/AKfycbypOYMmy4syQq-3x5BDoBqR3WEWwzaA0hQIV8NBRu-Ev5rOgca8vDZil3UnisNeM_ws/exec";
+  window.GS_URL = "https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec";
   //              ↑ Replace with your actual Web App URL
 </script>
 <!-- ZXing barcode scanner -->
@@ -860,10 +860,12 @@ td:nth-child(n+3){font-family:'Roboto Condensed',Arial,sans-serif;}
             <div class="field mb12"><label>Apps Script Web App URL</label><input id="gs-live-url" placeholder="https://script.google.com/macros/s/.../exec"></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
               <button class="btn btn-success" onclick="gsLiveSaveURL()">💾 Save &amp; Test</button>
-              <button class="btn btn-primary btn-sm" onclick="gsPullAll()">🔄 Pull All Data</button>
-              <button class="btn btn-outline btn-sm" onclick="showGsLiveGuide()">❓ Setup Guide</button>
+              <button class="btn btn-primary btn-sm" onclick="gsPullAll().then(ok=>{if(ok){refreshAllDropdowns();renderDashboard();}})">🔄 Pull All Data</button>
+              <button class="btn btn-warning btn-sm" onclick="gsDebugTest()">🔍 Debug</button>
+              <button class="btn btn-outline btn-sm" onclick="showGsLiveGuide()">❓ Guide</button>
             </div>
             <div id="gs-live-status" style="font-size:12px;margin-top:6px;"></div>
+            <div id="gs-debug-out" style="display:none;margin-top:8px;background:#111;color:#00ff88;padding:10px;border-radius:2px;font-family:'Courier Prime',monospace;font-size:11px;white-space:pre-wrap;max-height:200px;overflow-y:auto;border:1px solid #333;"></div>
           </div>
         </div>
         <div class="card"><div class="card-header"><h2>☁️ Google Sheets Backup</h2></div>
@@ -1139,22 +1141,12 @@ const DB = {
 function gsPush(key, value) {
   const url = getGsUrl();
   if (!url || url.includes('YOUR_SCRIPT')) return;
-  try {
-    const encoded = encodeURIComponent(JSON.stringify(value));
-    const fullUrl = url + '?action=set&key=' + encodeURIComponent(key) + '&value=' + encoded + '&cb=' + Date.now();
-    // Use no-cors POST as primary (for large payloads)
-    fetch(url, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'set', key, value })
-    }).catch(() => {
-      // fallback: GET (for smaller payloads)
-      if (encoded.length < 8000) {
-        fetch(fullUrl).catch(() => {});
-      }
-    });
-  } catch(e) {}
+  // Fire-and-forget: text/plain avoids CORS preflight
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'set', key, value })
+  }).catch(() => {});  // silent — local data is always safe
 }
 
 // ── Full backup — POST all data at once ──
@@ -1173,15 +1165,18 @@ async function gsFullBackup() {
     timestamp: new Date().toISOString()
   };
   try {
+    // text/plain avoids CORS preflight — critical for Apps Script
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(data)
     });
-    const d = await res.json();
-    return d.status === 'ok' ? d : false;
+    const text = await res.text();
+    let d;
+    try { d = JSON.parse(text); } catch(pe) { d = { status:'ok', raw: text }; }
+    return d;
   } catch(e) {
-    console.warn('Full backup error:', e);
+    console.warn('gsFullBackup error:', e);
     return false;
   }
 }
@@ -1193,27 +1188,39 @@ async function gsPullAll() {
     showSyncBanner('⚠️ Set your Web App URL in Settings → Live Database', 4000);
     return false;
   }
-  showSyncBanner('⏳ Pulling latest data from Google Sheets...');
+  showSyncBanner('⏳ Pulling data from Google Sheets...');
   try {
-    const res = await fetch(url + '?action=getAll&cb=' + Date.now(), {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (data.status !== 'ok') throw new Error(data.message || 'Error from server');
+    // NO custom headers on GET — avoids CORS preflight
+    const fetchUrl = url + '?action=getAll&t=' + Date.now();
+    const res = await fetch(fetchUrl);  // plain GET, no headers
+    const text = await res.text();
+    // Try to parse JSON
+    let data;
+    try {
+      // Apps Script sometimes wraps in callback — strip if needed
+      const clean = text.replace(/^[^{[]*/, '').replace(/[^}\]]*$/, '');
+      data = JSON.parse(clean);
+    } catch(pe) {
+      throw new Error('Bad response from server: ' + text.substring(0, 200));
+    }
+    if (!data || data.status !== 'ok') {
+      throw new Error(data ? (data.message || 'Server error') : 'Empty response');
+    }
     const store = data.store || {};
-    let count = 0;
-    Object.keys(store).forEach(k => {
+    const keys = Object.keys(store);
+    if (keys.length === 0) {
+      showSyncBanner('☁️ Sheet is empty — no data to pull yet', 3000);
+      return false;
+    }
+    keys.forEach(k => {
       localStorage.setItem('sms2_' + k, JSON.stringify(store[k]));
-      count++;
     });
-    showSyncBanner('✅ Synced ' + count + ' table(s) from Google Sheets!', 3000);
+    showSyncBanner('✅ Pulled ' + keys.length + ' table(s) from Google Sheets!', 3000);
     gsLiveUpdateBadge(true);
     return true;
   } catch(e) {
-    showSyncBanner('❌ Pull failed: ' + e.message, 4000);
-    console.error('gsPullAll:', e);
+    console.error('gsPullAll error:', e);
+    showSyncBanner('❌ Pull failed: ' + e.message, 5000);
     return false;
   }
 }
@@ -1278,7 +1285,7 @@ function gsLiveSaveURL() {
   const statusEl = document.getElementById('gs-live-status');
   if (statusEl) statusEl.innerHTML = '<span style="color:var(--warning);">⏳ Testing connection...</span>';
   // Test with ping GET
-  fetch(url + '?action=ping&cb=' + Date.now())
+  fetch(url + '?action=ping&t=' + Date.now())  // plain GET - no headers
     .then(r => r.json())
     .then(async d => {
       gsLiveUpdateBadge(true);
@@ -1317,6 +1324,43 @@ function loadGsLiveSettings() {
 }
 function showGsLiveGuide() {
   alert("Google Sheets Live Setup Guide:\n\n1. Go to script.google.com → New Project\n2. Paste the Code.gs file content\n3. Run setupSpreadsheet() once (allow permissions)\n4. Deploy → New Deployment → Web App\n   • Execute as: Me\n   • Who has access: Anyone\n5. Copy the Web App URL\n6. Paste it here and click Save & Test\n\nThe sheet and all tabs are auto-created!\nData syncs live across all browsers/devices.");
+}
+
+// Debug: test exactly what server returns
+async function gsDebugTest() {
+  const url = getGsUrl();
+  const dbEl = document.getElementById('gs-debug-out');
+  if (!dbEl) return;
+  dbEl.style.display = 'block';
+  if (!url || url.includes('YOUR_SCRIPT')) {
+    dbEl.textContent = '❌ No URL set. Paste your Web App URL first.'; return;
+  }
+  dbEl.textContent = '⏳ Testing GET ?action=ping ...\nURL: ' + url;
+  try {
+    const r1 = await fetch(url + '?action=ping&t=' + Date.now());
+    const t1 = await r1.text();
+    dbEl.textContent += '\n\n✅ PING response (status ' + r1.status + '):\n' + t1.substring(0,500);
+    // Now test getAll
+    dbEl.textContent += '\n\n⏳ Testing GET ?action=getAll ...';
+    const r2 = await fetch(url + '?action=getAll&t=' + Date.now());
+    const t2 = await r2.text();
+    dbEl.textContent += '\n\n✅ GETALL response (status ' + r2.status + '):\n' + t2.substring(0,800);
+    // Try parse
+    try {
+      const d = JSON.parse(t2);
+      const keys = Object.keys(d.store || {});
+      dbEl.textContent += '\n\n📊 Store keys found: ' + (keys.length ? keys.join(', ') : '(empty — no data in sheet yet)');
+    } catch(pe) {
+      dbEl.textContent += '\n\n⚠️ Could not parse as JSON: ' + pe.message;
+    }
+  } catch(e) {
+    dbEl.textContent += '\n\n❌ FETCH ERROR: ' + e.message +
+      '\n\nPossible causes:\n' +
+      '1. URL wrong or expired — re-deploy as New Deployment\n' +
+      '2. "Who has access" not set to "Anyone"\n' +
+      '3. Script has an error — check Apps Script editor logs\n' +
+      '4. CORS blocked — make sure you re-deployed after code changes';
+  }
 }
 
 
